@@ -25,6 +25,7 @@ from scicode_scanners.failure_classification.assets import (
 )
 from scicode_scanners.failure_classification.checkpoints import CheckpointStore
 from scicode_scanners.failure_classification.judge import investigate
+from scicode_scanners.failure_classification.sandbox import FreshSandbox
 from scicode_scanners.failure_classification.scanner import reconcile
 from scicode_scanners.failure_classification.schema import Assessment, Cause, Limits
 from scicode_scanners.failure_classification.tools import Investigation
@@ -387,3 +388,56 @@ async def test_python_timeout_is_not_recorded_as_original_failure():
     assert result["per_environment"]["2024"]["timed_out"]
     assert "diagnostic" in result["note"]
     assert c.scores == {"1.1": 0, "1.2": 0}
+
+
+@pytest.mark.asyncio
+async def test_empty_provider_responses_cannot_create_unbounded_input_spend():
+    c = fixture_cases()
+    limits = Limits()
+    inv = Investigation(c, "1.2", None, None, limits)
+    empty = ModelOutput.from_message(ChatMessageAssistant(content=""))
+    empty.usage = ModelUsage(input_tokens=100, output_tokens=0, total_tokens=100)
+    model = MockModel([empty] * (limits.tool_rounds + 4))
+    a, provenance = await investigate(model, inv, c.packet("1.2"), limits)
+    assert a.status == "unresolved" and provenance["termination"] == "model_call_limit"
+    assert len(model.requests) == 10
+
+
+@pytest.mark.asyncio
+async def test_verified_accepts_second_environment_pass():
+    class DualSandbox:
+        async def exec(self, cmd, **kwargs):
+            passed = "2025" in cmd[0]
+            return SimpleNamespace(
+                success=passed, returncode=0 if passed else 1, stdout="", stderr=""
+            )
+
+    c = fixture_cases(True)
+    inv = Investigation(c, "1.2", None, DualSandbox(), Limits())
+    result = json.loads(await inv.rerun("1.2"))
+    assert result["passed"]
+    assert not result["per_environment"]["2024"]["passed"]
+    assert result["per_environment"]["2025"]["passed"]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_restore_canonical_artifacts_in_fresh_directories():
+    class RecordingEnvironment:
+        def __init__(self):
+            self.writes = []
+            self.directories = []
+
+        async def write_file(self, path, content):
+            self.writes.append((path, content))
+
+        async def exec(self, cmd, **kwargs):
+            if "cwd" in kwargs:
+                self.directories.append(kwargs["cwd"])
+            return SimpleNamespace(success=True, returncode=0, stdout="", stderr="")
+
+    env = RecordingEnvironment()
+    sandbox = FreshSandbox(env, {"test_data.h5": b"canonical"})
+    await sandbox.exec(["python", "-c", "modify targets"], timeout=30)
+    await sandbox.exec(["python", "-c", "inspect targets"], timeout=30)
+    assert len(set(env.directories)) == 2
+    assert [content for _, content in env.writes] == [b"canonical", b"canonical"]

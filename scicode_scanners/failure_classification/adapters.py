@@ -102,7 +102,7 @@ class CaseSet:
             for i in range(len(step["record"]["test_cases"])):
                 known.update({f"T:{sid}:{i + 1}", f"T:{sid}:{i + 1}:target"})
         cited = {
-            reference
+            reference.rstrip(".")
             for evidence in cause.evidence
             for reference in re.findall(r"\b[METX]:[A-Za-z0-9_.:-]+", evidence)
         }

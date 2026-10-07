@@ -12,7 +12,7 @@ Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence an
 
 ## Evidence and tools
 
-The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `python`, `rerun`, and the structured `answer` tool.
+The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `python`, `rerun`, `prior_findings`, and the structured `answer` tool.
 
 No reference solutions or audit findings are exposed. Reference-code fields present in source metadata are removed recursively. Author-provided steps are available because they were visible to the evaluated model. HDF5 targets are the grader's expectations, not a guarantee of scientific correctness.
 
@@ -48,13 +48,15 @@ hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-pilo
 
 Smoke configurations select a known failed transcript and exercise extraction, HDF5 artifacts and sandbox interpreters without inference. Pilot configurations select two shuffled main-problem transcripts each; each main problem may contain several failed steps. They launch paid GLM-5.3 inference. Review these before using the corresponding `-full.yaml` configurations.
 
+Native Hawk scan jobs need permission to provision Kubernetes sandboxes. The current deployment's scan-runner service account was denied access to sandbox ConfigMaps during the remote smoke check. Enable the deployment's supported sandbox provisioning permissions before running these configurations; inference pilots have not been launched. Hawk supplies its own Kubernetes sandbox package, so the configurations intentionally do not override that package with a PyPI version.
+
 Source logs are read from their Hawk URI, with full attachments resolved. Target files are downloaded with pinned checksums and only relevant problem groups are copied into sandboxes. Custom target files must match the expected full-file checksum.
 
 ## Budget and resume
 
 The default judge is GLM-5.3 with `high` reasoning, the middle supported level. The allowance is **8,192 generated tokens per failed subproblem**, including reasoning and tool arguments across calls, with **1,536 reserved for finalization**. Investigation calls are capped at 4,096 tokens. The judge is told its total and remaining allowance before each call; the harness enforces it. Inputs are accounted separately. There is no global dollar cap.
 
-Defaults also allow six investigation tool calls, 30 seconds per Python diagnostic and 120 seconds total diagnostic execution. All limits are configurable scanner arguments. No automatic model retries are enabled. Missing usage is charged at the request's full allowance. Budget exhaustion produces an unresolved assessment rather than another unbudgeted call.
+Defaults also allow six investigation tool calls, 30 seconds per Python diagnostic and 120 seconds total diagnostic execution. All limits are configurable scanner arguments. Model calls are also capped at ten by default to bound empty or malformed responses. No automatic model retries are enabled. Missing usage is charged at the request's full allowance. Budget exhaustion produces an unresolved assessment rather than another unbudgeted call.
 
 Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. A restarted sandbox has fresh files; saved diagnostic evidence remains available to the judge.
 

@@ -27,7 +27,7 @@ Trace origins: current step, preceding step(s), author-provided code, external, 
 Retrieve earlier descriptions, code, exposed reasoning or full transcripts only when needed. Reasoning may be unavailable, which does not exclude the transcript.
 Use Python to examine concrete hypotheses; print decisive evidence. Reruns use diagnostic time limits, so a diagnostic timeout alone does not reproduce an original grading timeout. Counterfactual changes must be labelled. Never treat a proposed patch as the original submission.
 Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target], X:<experiment> references and relevant quotations. Keep evidence specific and consider alternatives.
-Use answer(assessment=...) to finish. Reuse the defect_key for an identical originating defect from earlier supported findings. Do not repeat a cause solely because multiple assertions fail.
+Use answer(assessment=...) to finish. Retrieve prior_findings when useful to reuse a defect_key for an identical originating defect. Earlier same-scan assessments are hypotheses to verify, not ground truth. Do not repeat a cause solely because multiple assertions fail.
 Your generated-token allowance covers reasoning, tool arguments, corrections and final output across ALL calls. The harness updates remaining tokens each turn. Reserve the indicated finalization allowance, prioritize decisive tests, and finish before exhaustion. Tool outputs and input context do not consume generated-token allowance.
 """
 
@@ -48,11 +48,12 @@ async def investigate(
     rounds = 0
     finalizing = False
     termination = "budget_exhausted"
+    investigation.previous_causes = previous_causes or []
     history = [
         ChatMessageSystem(content=INSTRUCTIONS),
         ChatMessageUser(
             content=json.dumps(
-                {"case": packet, "previous_supported_causes": previous_causes or []},
+                {"case": packet},
                 ensure_ascii=False,
             )
         ),
@@ -85,7 +86,7 @@ async def investigate(
                 }
             )
 
-    while used < limits.generated_token_budget:
+    while used < limits.generated_token_budget and len(calls) < limits.tool_rounds + 4:
         remaining = limits.generated_token_budget - used
         investigation_remaining = max(0, remaining - limits.finalization_reserve)
         finalizing = (
@@ -236,11 +237,13 @@ async def investigate(
         await save()
         if used >= limits.generated_token_budget:
             break
+    if used < limits.generated_token_budget:
+        termination = "model_call_limit"
     assessment = Assessment(
         status="unresolved",
         causes=[],
         explanation="Investigation ended without a valid assessment.",
-        limitations=["budget_exhausted"],
+        limitations=[termination],
         alternatives_considered=[],
     )
     provenance = {

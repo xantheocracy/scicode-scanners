@@ -10,6 +10,8 @@ from inspect_scout import scan_results_df
 def cause_rows(metadata):
     if isinstance(metadata, str):
         metadata = json.loads(metadata)
+    if not isinstance(metadata, dict) or "assessment" not in metadata:
+        return
     source = metadata.get("source", {})
     assessment = metadata.get("assessment", {})
     for cause in assessment.get("causes") or [None]:

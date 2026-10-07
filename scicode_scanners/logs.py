@@ -5,6 +5,8 @@ import zipfile
 
 def enable_zstd_zip():
     """Support Inspect's Zstandard ZIP members on older Python versions."""
+    if getattr(zipfile, '_scicode_zstd_enabled', False):
+        return
     import zstandard
 
     original = zipfile._get_decompressor
@@ -21,4 +23,4 @@ def enable_zstd_zip():
 
     zipfile._get_decompressor = decompress
     zipfile._check_compression = check
-
+    zipfile._scicode_zstd_enabled = True

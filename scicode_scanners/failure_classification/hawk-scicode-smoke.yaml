@@ -2,7 +2,6 @@ name: scicode-failure-classification-smoke
 
 packages:
   - inspect-scout==0.5.2
-  - inspect-k8s-sandbox==0.13.0
 
 transcripts:
   sources:

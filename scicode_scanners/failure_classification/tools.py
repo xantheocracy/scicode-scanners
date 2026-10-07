@@ -24,6 +24,7 @@ class Investigation:
         self.trace: list[dict[str, Any]] = []
         self.seconds = 0.0
         self.experiments = 0
+        self.previous_causes = []
         self.functions = {
             name: getattr(self, name)
             for name in (
@@ -33,6 +34,7 @@ class Investigation:
                 "helper_source",
                 "python",
                 "rerun",
+                "prior_findings",
             )
         }
 
@@ -42,6 +44,14 @@ class Investigation:
             ToolDef(function, name=name, parallel=False)
             for name, function in self.functions.items()
         ]
+
+    async def prior_findings(self) -> str:
+        """Retrieve earlier same-scan cause summaries to help reuse a defect key.
+
+        These are judge-generated hypotheses, not ground truth or historical audit findings.
+        Verify inherited causes using original evidence before attributing them here.
+        """
+        return json.dumps(self.previous_causes, ensure_ascii=False)
 
     async def retrieve_step(self, step_id: str) -> str:
         """Retrieve a step's exact prompt, response including exposed reasoning, tests and original results.
@@ -187,6 +197,11 @@ class Investigation:
         cumulative = "\n\n".join(
             [
                 self.cases.problem["required_dependencies"],
+                *(
+                    ["from test_util import are_dicts_close, cmp_tuple_or_list"]
+                    if self.cases.implementation == "scicode"
+                    else []
+                ),
                 *[self.cases.steps[s]["code"] for s in order[: order.index(sid) + 1]],
             ]
         )
