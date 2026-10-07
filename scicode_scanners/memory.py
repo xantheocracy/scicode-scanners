@@ -11,7 +11,7 @@ class Assessment(BaseModel):
         'supported_memory_induced_failure', 'possible_memory_induced_failure',
         'benchmark_recognition_only', 'ordinary_error', 'inherited_failure',
         'insufficient_evidence',
-    ]
+    ] = Field(description='Classify the evidence that this failed subproblem was caused by recalled original SciCode behavior, using the criteria in the question.')
     responsible_subproblem: str = Field(description='Step containing the responsible error, or unknown.')
     recall_quote: str = Field(description='Verbatim model quote establishing recalled benchmark behavior, or none.')
     original_behavior: str = Field(description='The specific original SciCode convention, formula, target, or test the model follows, or unknown.')
