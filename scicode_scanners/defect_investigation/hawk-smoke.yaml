@@ -1,8 +1,8 @@
+# Use Hawk's deployment-pinned Inspect version; do not override with a recent PyPI release.
 # Replace @main with the commit containing this task before launching.
 {
   "name": "scicode-defect-investigation-glm-smoke",
   "packages": [
-    "inspect-ai==0.3.277",
     "inspect-scout==0.5.2",
     "inspect-k8s-sandbox==0.13.0"
   ],

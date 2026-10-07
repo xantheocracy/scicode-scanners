@@ -287,6 +287,23 @@ def test_target_named_parameters_are_not_privileged_access():
     )
 
 
+@pytest.mark.parametrize("run", ["smoke", "pilot"])
+def test_hawk_configs_inherit_deployment_inspect_pin(run):
+    path = dataset.ROOT / f"hawk-{run}.yaml"
+    config = json.loads(
+        "\n".join(
+            line for line in path.read_text().splitlines() if not line.startswith("#")
+        )
+    )
+    assert not any(
+        spec.startswith(("inspect-ai", "inspect_ai")) for spec in config["packages"]
+    )
+    assert {item["args"]["implementation"] for item in config["tasks"][0]["items"]} == {
+        "scicode",
+        "scicode_verified",
+    }
+
+
 def test_report_evidence_validation():
     validate_report(report(), metadata(), evidence())
     bad = evidence()

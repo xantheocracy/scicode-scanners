@@ -1,6 +1,10 @@
 # SciCode scanners
 
-Inspect Scout scanners for SciCode experiments, run through Hawk. Each scanner has its own subdirectory under `scicode_scanners/`, containing its implementation, supporting data, run configuration, and documentation.
+Inspect Scout scanners and Inspect evaluations for SciCode experiments, run through Hawk. Each experiment has its own subdirectory under `scicode_scanners/`, containing its implementation, supporting data, run configuration, and documentation.
+
+## Evaluations
+
+- [Defect investigation](scicode_scanners/defect_investigation/README.md): investigates correct solutions rejected by grading and plausible incorrect solutions accepted by grading, for original SciCode and SciCode-Verified. Runs as an Inspect eval with GLM 5.3, rather than a Scout scan.
 
 ## Scanners
 
