@@ -1,0 +1,31 @@
+name: scicode_verified-failure-classification-opus55
+packages:
+- inspect-scout==0.5.2
+transcripts:
+  sources:
+  - eval_set_id: scicode-verified-default--tu1flh8tik8bh6l2
+  filter:
+    where:
+    - model: openrouter/openrouter/anthropic/claude-opus-5.5
+scanners:
+- package: scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@7cd33863cb8b6bb476e05b42e035488814db08a0
+  name: scicode_scanners
+  items:
+  - name: failure_classification
+    args:
+      implementation: scicode_verified
+      generated_token_budget: 8192
+      finalization_reserve: 1536
+      reasoning_effort: high
+models:
+- package: openai
+  name: openrouter
+  items:
+  - name: openrouter/z-ai/glm-5.3
+    args:
+      config:
+        max_retries: 0
+        extra_body:
+          reasoning:
+            effort: high
+max_transcripts: 1

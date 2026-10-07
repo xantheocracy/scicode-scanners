@@ -52,6 +52,15 @@ Native Hawk scan jobs need permission to provision Kubernetes sandboxes. The cur
 
 Source logs are read from their Hawk URI, with full attachments resolved. Target files are downloaded with pinned checksums and only relevant problem groups are copied into sandboxes. Custom target files must match the expected full-file checksum.
 
+Opus 5.5-only configurations use an exact source-model filter and pin the scanner package to an implementation commit:
+
+```bash
+hawk scan run scicode_scanners/failure_classification/hawk-scicode-opus55.yaml
+hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-opus55.yaml
+```
+
+These select 65 SciCode transcripts (106 failed scored steps) and 64 Verified transcripts (48 failed scored steps). The source model is Opus 5.5; the classification judge remains GLM-5.3. All-passing transcripts make no judge calls. The same sandbox permission prerequisite applies.
+
 ## Budget and resume
 
 The default judge is GLM-5.3 with `high` reasoning, the middle supported level. The allowance is **8,192 generated tokens per failed subproblem**, including reasoning and tool arguments across calls, with **1,536 reserved for finalization**. Investigation calls are capped at 4,096 tokens. The judge is told its total and remaining allowance before each call; the harness enforces it. Inputs are accounted separately. There is no global dollar cap.
