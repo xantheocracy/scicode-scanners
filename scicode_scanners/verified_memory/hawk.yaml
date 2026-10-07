@@ -1,4 +1,4 @@
-name: scicode-verified-recalled-glm-pilot
+name: scicode-verified-recalled-glm
 
 packages:
   - inspect-scout==0.5.2
@@ -7,6 +7,7 @@ transcripts:
   sources:
     - eval_set_id: scicode-verified-default--tu1flh8tik8bh6l2
   filter:
+    # Scan all non-GPT transcripts. Add limit and shuffle here for a pilot.
     where:
       - not:
           - model:
@@ -28,4 +29,3 @@ models:
             extra_body:
               reasoning:
                 effort: max
-

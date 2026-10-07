@@ -1,6 +1,6 @@
 # Verified memory scanner
 
-Inspect Scout scanners run through Hawk. `hawk.yaml` selects a shuffled pilot of 12 main-problem transcripts from `scicode-verified-default--tu1flh8tik8bh6l2`, with GLM-5.3 at max reasoning as judge.
+Inspect Scout scanners run through Hawk. `hawk.yaml` selects all non-GPT main-problem transcripts from `scicode-verified-default--tu1flh8tik8bh6l2`, with GLM-5.3 at max reasoning as judge.
 
 ## Run
 
@@ -10,11 +10,11 @@ Publish this repository where the Hawk runner can install it. The package URL in
 hawk scan run scicode_scanners/verified_memory/hawk.yaml
 ```
 
-This launches paid inference. GPT source transcripts are excluded because they expose no CoT. Each remaining main-problem transcript can produce several failed-subproblem results. Review the pilot, then remove `transcripts.filter.limit` to scan the full run. This repository does not provide a separate local runner or transcript database.
+This launches paid inference. GPT source transcripts are excluded because they expose no CoT. Each remaining main-problem transcript can produce several failed-subproblem results. For a shuffled pilot, add `limit: 12` and `shuffle: 42` under `transcripts.filter` before launching. This repository does not provide a separate local runner or transcript database.
 
 ## Files
 
-- `hawk.yaml` specifies the run, scanner, judge model, and pilot size.
+- `hawk.yaml` specifies the run, scanner, judge model, and transcript filter.
 - `scanner.py` extracts failed subproblems and runs the classifier.
 - `memory.py` defines the classification criteria and structured answer.
 - `data/audit_context.json` contains the audit evidence supplied to the judge.

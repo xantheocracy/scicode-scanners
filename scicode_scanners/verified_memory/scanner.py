@@ -59,7 +59,7 @@ def failed_cases(t: Transcript) -> list[Transcript]:
     return cases
 
 
-@scanner(events=['model'], version=4)
+@scanner(events=['model'], version=5)
 def verified_memory() -> Scanner[Transcript]:
     judge = remembered_original()
     async def scan(t: Transcript) -> list[Result]:
