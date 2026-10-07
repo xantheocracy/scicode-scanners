@@ -47,12 +47,7 @@ def failed_cases(t: Transcript) -> list[Transcript]:
         context = dict(AUDIT[step])
         context['model'] = t.model
         context['grading'] = (score.get('metadata', {}).get('per_environment', {})).get(step, {})
-        context['prior_step_scores'] = {s:values[s] for s in steps[:index]}
         messages = [ChatMessageSystem(content='ANALYST REVIEW CONTEXT\n' + json.dumps(context))]
-        for j in range(index):
-            if values[steps[j]] == 0:
-                messages.append(ChatMessageUser(content=f'ANALYST CONTEXT: earlier failed response for {steps[j]} follows.'))
-                messages.append(events[j].output.choices[0].message)
         messages.extend(event.input)
         choice = event.output.choices[0]
         messages.append(choice.message)
@@ -64,10 +59,12 @@ def failed_cases(t: Transcript) -> list[Transcript]:
     return cases
 
 
-@scanner(events=['model'], version=2)
+@scanner(events=['model'], version=4)
 def verified_memory() -> Scanner[Transcript]:
     judge = remembered_original()
     async def scan(t: Transcript) -> list[Result]:
+        if (t.model or '').endswith('/gpt-6-sol'):
+            return [Result(label='excluded_model', value=False, answer='excluded_no_cot', explanation='GPT source transcripts are excluded because their CoT is unavailable.')]
         cases = failed_cases(t)
         if not cases:
             return [Result(label='no_failed_subproblems', value=False, answer='no_failed_subproblems', metadata={'classification':'no_failed_subproblems'}, explanation='All scored subproblems passed.')]
