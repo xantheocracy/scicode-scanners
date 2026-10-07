@@ -1,0 +1,89 @@
+# Replace @main with the commit containing this task before launching.
+{
+  "name": "scicode-defect-investigation-glm-pilot",
+  "packages": [
+    "inspect-ai==0.3.277",
+    "inspect-scout==0.5.2",
+    "inspect-k8s-sandbox==0.13.0"
+  ],
+  "tasks": [
+    {
+      "package": "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@main",
+      "name": "scicode_scanners",
+      "items": [
+        {
+          "name": "scicode_defect_investigation",
+          "args": {
+            "implementation": "scicode",
+            "sandbox_type": "k8s",
+            "problem_ids": [
+              "5",
+              "13",
+              "21",
+              "58",
+              "76"
+            ],
+            "generated_token_budget": 100000,
+            "finalization_reserve": 5000,
+            "model_call_limit": 150,
+            "tool_call_limit": 140,
+            "time_limit": 3600,
+            "reasoning_effort": "high",
+            "per_call_tokens": 8000
+          }
+        },
+        {
+          "name": "scicode_defect_investigation",
+          "args": {
+            "implementation": "scicode_verified",
+            "sandbox_type": "k8s",
+            "problem_ids": [
+              "5",
+              "13",
+              "21",
+              "58",
+              "76"
+            ],
+            "generated_token_budget": 100000,
+            "finalization_reserve": 5000,
+            "model_call_limit": 150,
+            "tool_call_limit": 140,
+            "time_limit": 3600,
+            "reasoning_effort": "high",
+            "per_call_tokens": 8000
+          }
+        }
+      ]
+    }
+  ],
+  "models": [
+    {
+      "package": "openai",
+      "name": "openrouter",
+      "items": [
+        {
+          "name": "openrouter/z-ai/glm-5.3",
+          "args": {
+            "config": {
+              "max_retries": 0,
+              "extra_body": {
+                "reasoning": {
+                  "effort": "high"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "epochs": 1,
+  "retry_attempts": 0,
+  "max_retries": 0,
+  "max_samples": 1,
+  "runner": {
+    "cpu": "2",
+    "memory": "4Gi"
+  },
+  "max_tasks": 1
+}

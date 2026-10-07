@@ -1,0 +1,70 @@
+{
+  "allowDomains": [],
+  "allowEntities": [],
+  "allowCIDR": [],
+  "automountServiceAccountToken": false,
+  "services": {
+    "default": {
+      "image": "ghcr.io/xantheocracy/scicode-sandbox@sha256:bfe90450667f23be60d1c05978281ff29efaf1f3979a875f8362d0595784a981",
+      "command": [
+        "tail",
+        "-f",
+        "/dev/null"
+      ],
+      "workingDir": "/workspace",
+      "runtimeClassName": "gvisor",
+      "nodeSelector": {
+        "kubernetes.io/arch": "amd64"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "500m",
+          "memory": "1Gi"
+        },
+        "limits": {
+          "cpu": "2",
+          "memory": "4Gi"
+        }
+      },
+      "securityContext": {
+        "allowPrivilegeEscalation": false,
+        "capabilities": {
+          "drop": [
+            "ALL"
+          ]
+        }
+      }
+    },
+    "grader": {
+      "image": "ghcr.io/xantheocracy/scicode-sandbox@sha256:bfe90450667f23be60d1c05978281ff29efaf1f3979a875f8362d0595784a981",
+      "command": [
+        "tail",
+        "-f",
+        "/dev/null"
+      ],
+      "workingDir": "/workspace",
+      "runtimeClassName": "gvisor",
+      "nodeSelector": {
+        "kubernetes.io/arch": "amd64"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "500m",
+          "memory": "1Gi"
+        },
+        "limits": {
+          "cpu": "2",
+          "memory": "4Gi"
+        }
+      },
+      "securityContext": {
+        "allowPrivilegeEscalation": false,
+        "capabilities": {
+          "drop": [
+            "ALL"
+          ]
+        }
+      }
+    }
+  }
+}

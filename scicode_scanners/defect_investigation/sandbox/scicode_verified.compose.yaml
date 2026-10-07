@@ -1,0 +1,44 @@
+{
+  "services": {
+    "default": {
+      "image": "ghcr.io/xantheocracy/scicode-sandbox@sha256:bfe90450667f23be60d1c05978281ff29efaf1f3979a875f8362d0595784a981",
+      "platform": "linux/amd64",
+      "command": [
+        "tail",
+        "-f",
+        "/dev/null"
+      ],
+      "init": true,
+      "network_mode": "none",
+      "working_dir": "/workspace",
+      "mem_limit": "4g",
+      "cpus": 2,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    },
+    "grader": {
+      "image": "ghcr.io/xantheocracy/scicode-sandbox@sha256:bfe90450667f23be60d1c05978281ff29efaf1f3979a875f8362d0595784a981",
+      "platform": "linux/amd64",
+      "command": [
+        "tail",
+        "-f",
+        "/dev/null"
+      ],
+      "init": true,
+      "network_mode": "none",
+      "working_dir": "/workspace",
+      "mem_limit": "4g",
+      "cpus": 2,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "scicode_problems_revision": "69a8cfc829fe8788a426ce8b5de6292366dce7ef",
+  "scicode_harness_revision": "e02028192f8bbf3677c6a672eaf48cf20e7a6d53",
+  "scicode_verified_revision": "3fd9ef2713244d58f6cfeab5a5d92c10e2b907de",
+  "verified_targets_revision": "eea11a866be6860725258702b39ef8651ed26abd",
+  "files": {
+    "data/scicode.jsonl": "38797fef78f434720be6d053b4f3a86839d6f8ea5fb9115450677cd3a6edf81d",
+    "data/scicode_dev.jsonl": "e02e0170641999b32dd108a546e616a84697db3d2aea4a7cc046706574dd7682",
+    "data/scicode_verified.jsonl": "427771cb8bceb5058e8b510af0ee2c8210827a1491e0cdf8e6db56d4ed1440ba",
+    "vendor/13.6.txt": "795a2b57c2d9bb12ca4eaf16d6b8e1f202015a89a886628858abf42a1b18a94e",
+    "vendor/62.1.txt": "bc9931d88a7d5950091b72a996a25b8be6c936fd136b01005e22c3d45b0008a2",
+    "vendor/76.3.txt": "4758300d96ea726cdc0fbf749f1bc437030d2a3e8b43bde232ecdeaf636cd367",
+    "vendor/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "vendor/README.md": "86e1b6e46193070cbca27a1bb3a24274a87ef30e7493c9c87c8400220d441b41",
+    "vendor/background_comment_template.txt": "9b407bdd44937f13cf090b5ae35436b7dc60a0fb8494caec6995c9c83cdadb03",
+    "vendor/multistep_template.txt": "2c6946acf50f69d37647b83c04e77e6bdc5f3ff04e87d4aa6f79d0f27b5dcbc2",
+    "vendor/original_scorer.py.txt": "5d17058f3488ad1b47fe5bf7d5e9f1a7561f2c401b1cc424dbf698038a2e92fa",
+    "vendor/process_data.py": "35fcfb8d3368ff8d53009ed16b379b4d4759ceef057ae1a556553a8f25eeec71",
+    "vendor/prompt_templates.py": "419999446de2b3cf095a8fe4e0bd70fecac42831b280aa8534cff61ad664a689",
+    "vendor/scicode/__init__.py": "63fd5804866fc8cac57c9cdca88a14daddd4c8ce9653a37b8a5692a3629261b8",
+    "vendor/scicode/compare/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "vendor/scicode/compare/cmp.py": "8b3e790cc29dc87ef1f0f1b9bfd68c877728c78c40b541a69d10015221e9e235",
+    "vendor/scicode/parse/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "vendor/scicode/parse/parse.py": "2454778447ec5025e6b6475b98a90d7208fae5e3309f7e63c832a7c3662c58f5",
+    "vendor/test_util.py": "30071bc66b276906c1df3c06421b90a0a84975b24d1e881062d6ffc07ddd6197",
+    "vendor/verified_task.py.txt": "ac423f99afb9e3b6d8558217c27f146922607c56056cffb86450f927192ca622"
+  }
+}
