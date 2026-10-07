@@ -1,8 +1,12 @@
 [project]
 name = "scicode-scanners"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.11"
-dependencies = ["inspect-scout>=0.4.27", "inspect-ai>=0.3.263", "zstandard", "pydantic>=2"]
+dependencies = ["inspect-scout>=0.4.27", "inspect-ai>=0.3.263", "zstandard", "pydantic>=2", "numpy", "scipy", "h5py", "sympy"]
+
+[project.optional-dependencies]
+hawk = ["inspect-k8s-sandbox"]
+test = ["pytest", "pytest-asyncio"]
 
 [project.entry-points.inspect_ai]
 scicode_scanners = "scicode_scanners._registry"
@@ -13,3 +17,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["scicode_scanners"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

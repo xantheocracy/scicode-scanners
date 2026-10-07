@@ -1,0 +1,39 @@
+name: scicode-failure-classification-smoke
+
+packages:
+  - inspect-scout==0.5.2
+  - inspect-k8s-sandbox==0.13.0
+
+transcripts:
+  sources:
+    - eval_set_id: scicode-default-max-6nsnsp7trfmhbofk
+  filter:
+    limit: 1
+    where:
+      - transcript_id: 6KaZBFP2RjaqsiqbFMPN3A
+
+scanners:
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@failure-classification-scanner"
+    name: scicode_scanners
+    items:
+      - name: failure_classification
+        args:
+          implementation: scicode
+          generated_token_budget: 8192
+          finalization_reserve: 1536
+          reasoning_effort: high
+          smoke_only: true
+
+models:
+  - package: openai
+    name: openrouter
+    items:
+      - name: openrouter/z-ai/glm-5.3
+        args:
+          config:
+            max_retries: 0
+            extra_body:
+              reasoning:
+                effort: high
+
+max_transcripts: 1

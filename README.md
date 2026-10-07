@@ -5,6 +5,7 @@ Inspect Scout scanners for SciCode experiments, run through Hawk. Each scanner h
 ## Scanners
 
 - [Verified memory](scicode_scanners/verified_memory/README.md): detects failed subproblems caused by recalling original SciCode behavior.
+- [Failure classification](scicode_scanners/failure_classification/README.md): classifies why subproblems failed in SciCode and SciCode-Verified, with causal origins and Python investigation tools on Hawk.
 
 ## Layout
 
