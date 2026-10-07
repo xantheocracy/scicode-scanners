@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from inspect_ai.model import ChatMessageSystem, ChatMessageUser
 from inspect_ai.log import read_eval_log_sample
-from .logs import enable_zstd_zip
+from ..logs import enable_zstd_zip
 from inspect_scout import Result, Scanner, Transcript, scanner
 from .memory import remembered_original
 

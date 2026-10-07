@@ -1,0 +1,31 @@
+name: scicode-verified-recalled-glm-pilot
+
+packages:
+  - inspect-scout==0.5.2
+
+transcripts:
+  sources:
+    - eval_set_id: scicode-verified-default--tu1flh8tik8bh6l2
+  filter:
+    where:
+      - not:
+          - model:
+              like: "%/gpt-6-sol"
+
+scanners:
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@main"
+    name: scicode_scanners
+    items:
+      - name: verified_memory
+
+models:
+  - package: openai
+    name: openrouter
+    items:
+      - name: openrouter/z-ai/glm-5.3
+        args:
+          config:
+            extra_body:
+              reasoning:
+                effort: max
+
