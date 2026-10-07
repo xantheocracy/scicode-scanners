@@ -64,13 +64,13 @@ def failed_cases(t: Transcript) -> list[Transcript]:
     return cases
 
 
-@scanner(events=['model'], version=1)
+@scanner(events=['model'], version=2)
 def verified_memory() -> Scanner[Transcript]:
     judge = remembered_original()
     async def scan(t: Transcript) -> list[Result]:
         cases = failed_cases(t)
         if not cases:
-            return [Result(label='no_failed_subproblems', value={'classification':'no_failed_subproblems'}, explanation='All scored subproblems passed.')]
+            return [Result(label='no_failed_subproblems', value=False, answer='no_failed_subproblems', metadata={'classification':'no_failed_subproblems'}, explanation='All scored subproblems passed.')]
         results=[]
         for case in cases:
             result=await judge(case)

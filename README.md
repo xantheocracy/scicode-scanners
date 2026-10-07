@@ -4,7 +4,7 @@ Inspect Scout scanners run through Hawk. `hawk.yaml` selects a shuffled pilot of
 
 ## Run
 
-Publish this repository where the Hawk runner can install it. The package URL in `hawk.yaml` is currently `https://github.com/xantheocracy/scicode_scanners.git@main`. Update it if you publish elsewhere, and pin a commit SHA for reproducibility. Configure your Hawk deployment and authentication before running:
+Publish this repository where the Hawk runner can install it. The package URL in `hawk.yaml` is currently `https://github.com/xantheocracy/scicode-scanners.git@main`. Update it if you publish elsewhere, and pin a commit SHA for reproducibility. Configure your Hawk deployment and authentication before running:
 
 ```bash
 hawk scan run hawk.yaml
@@ -22,6 +22,8 @@ This launches paid inference. Each main-problem transcript can produce several f
 - `pyproject.toml` packages and registers the scanner for Hawk.
 
 ## Detection criterion
+
+The result value is boolean. Only `supported_memory_induced_failure` is positive (`true`). Possible cases, recognition alone, ordinary errors, inherited failures without established memory origin, insufficient evidence, empty submissions, and all-passing transcripts are negative (`false`). The full assessment is retained in result metadata. Scanner version 2 corrects the previous structured result value; existing scan outputs do not change automatically.
 
 A supported finding requires evidence of a specific recalled original behavior, adoption in submitted code, conflict with a correction, and a connection to the failure. Benchmark recognition alone receives a separate label. An original formula appearing in code without evidence of recall could be an independently generated mistake. The scanner identifies inherited failures and missing evidence separately. It does not execute model code. Findings require review and do not establish training-data provenance.
 
