@@ -23,6 +23,20 @@
     "vendor/scicode/parse/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "vendor/scicode/parse/parse.py": "2454778447ec5025e6b6475b98a90d7208fae5e3309f7e63c832a7c3662c58f5",
     "vendor/test_util.py": "30071bc66b276906c1df3c06421b90a0a84975b24d1e881062d6ffc07ddd6197",
-    "vendor/verified_task.py.txt": "ac423f99afb9e3b6d8558217c27f146922607c56056cffb86450f927192ca622"
+    "vendor/verified_task.py.txt": "ac423f99afb9e3b6d8558217c27f146922607c56056cffb86450f927192ca622",
+    "sandbox/chart/Chart.yaml": "fdcb4ac840277891859e736e4a3abd166129e0ca7ad5ce82494e9e1a95e9d45e",
+    "sandbox/chart/LICENSE": "bf0336753501b8026af75a94d86b765d16451112ca3b5905fbc0068d08571ada",
+    "sandbox/chart/PROVENANCE.md": "9f8864a1ac67709a2e7276c533244071daca3d6ea880fb55e064c6e25ba5f58a",
+    "sandbox/chart/README.md": "f209ed71fb8683077e5998f45bd02342f2a5671ec12a611c15aabbd0c7c32a25",
+    "sandbox/chart/generate-docs.md": "d11ffe8c496051c1513e8543332368818eb3d763acef73dd6b5e26f3a4fa20b4",
+    "sandbox/chart/templates/additional-resources.yaml": "8277db1b877d94ceb678face7637e7fe87bbcbeb0332978380bac28850e7c488",
+    "sandbox/chart/templates/coredns.yaml": "db9eed55bf9158ea7f6ebc52d5772ef6d0581bf7d492ae9df495bdc29c214d69",
+    "sandbox/chart/templates/helpers/_helpers.tpl": "988a7eb0eb62abe0c544537da68696cb5885a7255f18534c870588f438682b34",
+    "sandbox/chart/templates/network-policy.yaml": "8ac89234931e7080e415357db50514bfd1578cf881bef81f12a15c0c7bec90d6",
+    "sandbox/chart/templates/pvc.yaml": "ef4fb5cd959a031f99ed1361507c704508b9414974197993c75841a885c0c4d1",
+    "sandbox/chart/templates/service_account.yaml": "d5086ff22d1d3e296b6c8097bafba35b5db57bec042033eac65ba2c6462d50c1",
+    "sandbox/chart/templates/services.yaml": "ea5010661ac893cf7619418d9c1debe9a1353397bd4c2b00aab967ce3743c357",
+    "sandbox/chart/values.schema.json": "54a546d72075a7a69ce0e71404924d8aaa9022de7cee410aadccc26a77ba05a3",
+    "sandbox/chart/values.yaml": "4c65cb898c105450103947e71158fcb4fd8f8b7401e0df3469b004c0655c7047"
   }
 }

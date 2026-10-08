@@ -402,3 +402,19 @@ async def test_agent_structured_submission(monkeypatch):
     await agent.investigate(Limits())(state, None)
     assert state.store.get("defect_report")["problem_id"] == "1"
     assert state.store.get("defect_termination") == "submitted"
+
+
+def test_k8s_uses_packaged_chart():
+    from pathlib import Path
+
+    pytest.importorskip("k8s_sandbox")
+    from scicode_scanners.defect_investigation.harness import ROOT
+    from scicode_scanners.defect_investigation.task import _sandbox_spec
+
+    values = str(ROOT / "sandbox" / "scicode.yaml")
+    kind, config = _sandbox_spec("k8s", values)
+    assert kind == "k8s"
+    assert Path(config.chart) == ROOT / "sandbox" / "chart"
+    assert config.values == Path(values)
+    assert config.restarted_container_behavior == "raise"
+    assert _sandbox_spec("docker", "compose.yaml") == ("docker", "compose.yaml")

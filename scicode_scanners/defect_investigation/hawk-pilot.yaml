@@ -1,14 +1,14 @@
 # Use Hawk's deployment-pinned Inspect version; do not override with a recent PyPI release.
-# Replace @main with the commit containing this task before launching.
+# Uses the failure-classification-scanner branch; push local changes before launching.
 {
   "name": "scicode-defect-investigation-glm-pilot",
   "packages": [
     "inspect-scout==0.5.2",
-    "inspect-k8s-sandbox==0.13.0"
+    "inspect-k8s-sandbox==0.6.1"
   ],
   "tasks": [
     {
-      "package": "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@main",
+      "package": "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@failure-classification-scanner",
       "name": "scicode_scanners",
       "items": [
         {

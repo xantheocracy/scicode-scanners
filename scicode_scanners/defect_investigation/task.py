@@ -12,6 +12,21 @@ from .schema import Implementation, Limits
 from .scorer import validate_findings
 
 
+def _sandbox_spec(sandbox_type: str, config: str) -> tuple:
+    if sandbox_type == "k8s":
+        from k8s_sandbox import K8sSandboxEnvironmentConfig
+
+        return (
+            sandbox_type,
+            K8sSandboxEnvironmentConfig(
+                chart=str(ROOT / "sandbox" / "chart"),
+                values=Path(config),
+                restarted_container_behavior="raise",
+            ),
+        )
+    return sandbox_type, config
+
+
 @task
 def scicode_defect_investigation(
     implementation: Implementation = "scicode",
@@ -82,7 +97,7 @@ def scicode_defect_investigation(
         dataset=dataset,
         solver=investigate(limits, grading_environments),
         scorer=validate_findings(limits, grading_environments),
-        sandbox=(sandbox_type, config),
+        sandbox=_sandbox_spec(sandbox_type, config),
         time_limit=time_limit,
         version=1,
         metadata={
