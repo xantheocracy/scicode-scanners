@@ -298,6 +298,12 @@ def test_hawk_configs_inherit_deployment_inspect_pin(run):
     assert not any(
         spec.startswith(("inspect-ai", "inspect_ai")) for spec in config["packages"]
     )
+    sandbox_specs = [
+        spec for spec in config["packages"] if spec.startswith("inspect-k8s-sandbox")
+    ]
+    assert len(sandbox_specs) == 1
+    assert " @ https://files.pythonhosted.org/" in sandbox_specs[0]
+    assert "#sha256=" in sandbox_specs[0]
     assert {item["args"]["implementation"] for item in config["tasks"][0]["items"]} == {
         "scicode",
         "scicode_verified",

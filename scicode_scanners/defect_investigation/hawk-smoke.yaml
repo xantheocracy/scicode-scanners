@@ -4,7 +4,7 @@
   "name": "scicode-defect-investigation-glm-smoke",
   "packages": [
     "inspect-scout==0.5.2",
-    "inspect-k8s-sandbox==0.6.1"
+    "inspect-k8s-sandbox @ https://files.pythonhosted.org/packages/67/eb/322b58f0386b70d91cf2c7a8298c2a159cac7ef104bb1b0a5064eab9b629/inspect_k8s_sandbox-0.6.1-py3-none-any.whl#sha256=167ec37c1868c8150f0c1d584836a42a3ad136cd9706610096a8c1dc75ec3f17"
   ],
   "tasks": [
     {
