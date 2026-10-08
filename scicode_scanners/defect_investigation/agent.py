@@ -53,6 +53,9 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
                 limits.per_call_tokens,
                 remaining if finalizing else remaining - limits.finalization_reserve,
             )
+            # Leave room to correct a rejected structured report.
+            if finalizing and repairs == 0 and remaining > 1000:
+                cap = min(cap, remaining - 1000)
             if cap < 1:
                 break
             state.messages.append(
@@ -64,7 +67,7 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
                             "remaining_tool_calls": max(
                                 0, limits.tool_calls - tool_count
                             ),
-                            "instruction": "Submit the report now; only submit_report is available."
+                            "instruction": "Submit a compact report now; only submit_report is available. Use null candidate_evidence without canonical_grade evidence, and suspected/inconclusive for unverified claims. Do not repeat programs or diagnostics."
                             if finalizing
                             else "Investigate both directions or submit the report.",
                         }

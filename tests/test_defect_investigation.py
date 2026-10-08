@@ -451,3 +451,59 @@ def test_targets_download_from_pinned_hf(monkeypatch, tmp_path, implementation):
     calls.clear()
     assert dataset.targets_file(implementation, str(path), tmp_path) == path.resolve()
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_agent_reserves_tokens_for_report_repair(monkeypatch):
+    valid = report().model_dump()
+    valid["findings"] = [
+        finding("false_acceptance", "inconclusive"),
+        finding("false_rejection", "inconclusive"),
+    ]
+    invalid = dict(valid, findings=[])
+    caps = []
+
+    async def generate(messages, tools, config):
+        caps.append(config.max_tokens)
+        return ModelOutput(
+            model="mock",
+            choices=[
+                {
+                    "message": ChatMessageAssistant(
+                        content="",
+                        tool_calls=[
+                            ToolCall(
+                                id=str(len(caps)),
+                                function="submit_report",
+                                arguments={
+                                    "report": invalid if len(caps) == 1 else valid
+                                },
+                            )
+                        ],
+                    ),
+                    "stop_reason": "tool_calls",
+                }
+            ],
+            usage=ModelUsage(
+                input_tokens=10,
+                output_tokens=config.max_tokens,
+                total_tokens=10 + config.max_tokens,
+            ),
+        )
+
+    monkeypatch.setattr(agent, "get_model", lambda: SimpleNamespace(generate=generate))
+    state = SimpleNamespace(
+        metadata=metadata(),
+        store=Store(),
+        messages=[ChatMessageUser(content="Investigate")],
+    )
+    await agent.investigate(
+        Limits(
+            generated_tokens=3000,
+            finalization_reserve=2000,
+            per_call_tokens=3000,
+            model_calls=2,
+        )
+    )(state, None)
+    assert caps == [2000, 1000]
+    assert state.store.get("defect_termination") == "submitted"
