@@ -123,7 +123,12 @@ def targets_file(
         else cache / TARGET_NAMES[implementation]
     )
     if not override:
-        download(TARGET_URLS[implementation], TARGET_HASHES[implementation], path)
+        download(
+            TARGET_URLS[implementation],
+            TARGET_HASHES[implementation],
+            path,
+            timeout=120.0,
+        )
     check_hash(path, TARGET_HASHES[implementation])
     return path
 
