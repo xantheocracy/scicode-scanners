@@ -77,10 +77,8 @@
   "epochs": 1,
   "retry_attempts": 0,
   "max_retries": 0,
-  "max_samples": 1,
   "runner": {
     "cpu": "2",
     "memory": "4Gi"
-  },
-  "max_tasks": 1
+  }
 }

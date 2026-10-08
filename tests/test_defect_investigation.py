@@ -302,6 +302,8 @@ def test_hawk_configs_inherit_deployment_inspect_pin(run):
         spec.startswith(("inspect-k8s-sandbox", "inspect_k8s_sandbox"))
         for spec in config["packages"]
     )
+    assert "max_samples" not in config
+    assert "max_tasks" not in config
     assert {item["args"]["implementation"] for item in config["tasks"][0]["items"]} == {
         "scicode",
         "scicode_verified",

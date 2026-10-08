@@ -52,7 +52,7 @@ Candidate and semantic-check tools accept a mapping from step IDs to complete so
 
 ## Hawk
 
-`hawk-smoke.yaml` configures **two samples total**, one selected step from each implementation. `hawk-pilot.yaml` configures five main problems per implementation (ten samples total). Both restrict sample/task concurrency to one and disable automatic retries. Each task has its own isolated default and grader services.
+`hawk-smoke.yaml` configures **two samples total**, one selected step from each implementation. `hawk-pilot.yaml` configures five main problems per implementation (ten samples total). Both disable automatic retries and use Hawk-managed concurrency. Do not set top-level `max_samples` or `max_tasks`: Hawk supplies these internally, so extra config keys produce duplicate keyword errors. Each task has its own isolated default and grader services.
 
 Both configurations inherit Hawk's deployment-pinned Inspect and Kubernetes sandbox dependencies. Do not add an `inspect-k8s-sandbox` requirement: Hawk already requires its own Git source, and another source conflicts during installation. The task packages a Helm chart that preserves disabled service-account token mounts. Do not add a recent `inspect-ai==...` override: Hawk's package-age cutoff can exclude newly published releases. The project requires Inspect >=0.3.263; local validation used 0.3.277.
 
