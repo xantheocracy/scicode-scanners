@@ -12,7 +12,9 @@ Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence an
 
 ## Evidence and tools
 
-The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `prior_findings`, and the structured `answer` tool.
+The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `current_evidence`, `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `prior_findings`, and the structured `answer` tool.
+
+Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Oversized initial evidence is paginated too, with the rest available through `current_evidence`. Omitted text is explicitly marked incomplete. A conservative 100,000-byte serialized-history ceiling stops investigation with an unresolved `input_context_limit` assessment before sending an oversized request.
 
 No reference solutions or audit findings are exposed. Reference-code fields present in source metadata are removed recursively. Author-provided steps are available because they were visible to the evaluated model. HDF5 targets are the grader's expectations, not a guarantee of scientific correctness.
 
@@ -65,7 +67,7 @@ The default judge is GLM-5.3 with `high` reasoning, the middle supported level. 
 
 Defaults also allow six read-only investigation tool calls. All limits are configurable scanner arguments. Model calls are also capped at ten by default to bound empty or malformed responses. No automatic model retries are enabled. Missing usage is charged at the request's full allowance. Budget exhaustion produces an unresolved assessment rather than another unbudgeted call.
 
-Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. Inspection-only checkpoints use scanner version 2 and a mode identifier, so they cannot reuse older sandbox investigations.
+Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. Inspection-only checkpoints use scanner version 3 and a mode identifier, so they cannot reuse older sandbox investigations.
 
 ```bash
 hawk scan resume SCAN_RUN_ID

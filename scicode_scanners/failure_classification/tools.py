@@ -8,15 +8,40 @@ from inspect_ai.tool import ToolDef
 from .adapters import CaseSet, redact
 from .assets import ROOT, decode_targets, typed
 
+PAGE_CHARS = 12000
+
+
+def evidence_page(value, char_offset=0):
+    """Bound serialized evidence; subsequent pages retain access to the full payload."""
+    if char_offset < 0:
+        raise ValueError("char_offset must be nonnegative.")
+    text = json.dumps(redact(value), ensure_ascii=False)
+    if len(text) <= PAGE_CHARS and char_offset == 0:
+        return text
+    end = min(char_offset + PAGE_CHARS, len(text))
+    return json.dumps(
+        {
+            "format": "json_text_excerpt",
+            "total_chars": len(text),
+            "char_offset": char_offset,
+            "excerpt": text[char_offset:end],
+            "next_char_offset": end if end < len(text) else None,
+            "note": "Incomplete evidence. Repeat the same tool arguments with next_char_offset as char_offset to continue; omitted text is not evidence of absence.",
+        },
+        ensure_ascii=False,
+    )
+
 
 class Investigation:
     def __init__(self, cases: CaseSet, sid: str, targets_path):
         self.cases, self.sid, self.targets_path = cases, sid, targets_path
         self.trace: list[dict[str, Any]] = []
         self.previous_causes = []
+        self.packet = {}
         self.functions = {
             name: getattr(self, name)
             for name in (
+                "current_evidence",
                 "retrieve_step",
                 "full_transcript",
                 "inspect_target",
@@ -32,18 +57,27 @@ class Investigation:
             for name, function in self.functions.items()
         ]
 
-    async def prior_findings(self) -> str:
+    async def current_evidence(self, char_offset: int = 0) -> str:
+        """Read the initial evidence packet with character pagination if it was clipped.
+
+        Args:
+            char_offset: Character position within the selected JSON payload; follow next_char_offset.
+        """
+        return evidence_page(self.packet, char_offset)
+
+    async def prior_findings(self, char_offset: int = 0) -> str:
         """Retrieve earlier same-scan cause summaries to help reuse a defect key.
 
         These are judge-generated hypotheses, not ground truth or historical audit findings.
         Verify inherited causes using original evidence before attributing them here.
         """
-        return json.dumps(self.previous_causes, ensure_ascii=False)
+        return evidence_page(self.previous_causes, char_offset)
 
-    async def retrieve_step(self, step_id: str) -> str:
+    async def retrieve_step(self, step_id: str, char_offset: int = 0) -> str:
         """Retrieve a step's exact prompt, response including exposed reasoning, tests and original results.
 
         Args:
+            char_offset: Character position within the selected JSON payload; follow next_char_offset.
             step_id: Subproblem identifier, e.g. 13.2. Passing and supplied steps are available too.
         """
         s = self.cases.steps[step_id]
@@ -64,14 +98,15 @@ class Investigation:
             ]
         else:
             evidence["reasoning"] = "Unavailable: this is author-provided code."
-        return json.dumps(redact(evidence), ensure_ascii=False)
+        return evidence_page(evidence, char_offset)
 
     async def full_transcript(
-        self, offset: int = 0, limit: int = 4, query: str = ""
+        self, offset: int = 0, limit: int = 4, query: str = "", char_offset: int = 0
     ) -> str:
         """Read/search all transcript events, including previous steps, reasoning and grader events.
 
         Args:
+            char_offset: Character position within the selected JSON payload; follow next_char_offset.
             offset: Zero-based offset into events matching the optional query.
             limit: Number of events, at most 10. Continue using next_offset.
             query: Optional literal case-insensitive search string.
@@ -89,13 +124,13 @@ class Investigation:
                 if query.casefold() in json.dumps(e, ensure_ascii=False).casefold()
             ]
         end = min(offset + limit, len(events))
-        return json.dumps(
+        return evidence_page(
             {
                 "events": events[offset:end],
                 "total": len(events),
                 "next_offset": end if end < len(events) else None,
             },
-            ensure_ascii=False,
+            char_offset,
         )
 
     async def inspect_target(
@@ -105,10 +140,12 @@ class Investigation:
         path: list[str] | None = None,
         offset: int = 0,
         limit: int = 64,
+        char_offset: int = 0,
     ) -> str:
         """Inspect expected HDF5 output with typed previews and pagination, without changing it.
 
         Args:
+            char_offset: Character position within the selected JSON payload; follow next_char_offset.
             step_id: Step whose expected output to inspect.
             test_index: One-based test index.
             path: Nested dictionary keys or list/tuple indices, expressed as strings.
@@ -130,18 +167,19 @@ class Investigation:
                 if isinstance(value, dict) and key in value
                 else value[int(key)]
             )
-        return json.dumps(
+        return evidence_page(
             {
                 "reference": f"T:{step_id}:{test_index}:target",
                 "value": typed(value, offset, limit),
             },
-            ensure_ascii=False,
+            char_offset,
         )
 
-    async def helper_source(self, name: str) -> str:
+    async def helper_source(self, name: str, char_offset: int = 0) -> str:
         """Read the exact target-decoding or comparator helper source used by this harness.
 
         Args:
+            char_offset: Character position within the selected JSON payload; follow next_char_offset.
             name: Either targets or comparator.
         """
         if name not in {"targets", "comparator"}:
@@ -158,4 +196,4 @@ class Investigation:
                 / "vendor/verified/scicode"
                 / ("parse/parse.py" if name == "targets" else "compare/cmp.py")
             )
-        return p.read_text()
+        return evidence_page({"name": name, "source": p.read_text()}, char_offset)

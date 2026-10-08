@@ -457,6 +457,7 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
     for history, tools, _ in model.requests:
         assert {t.name for t in tools} == {
             "answer",
+            "current_evidence",
             "retrieve_step",
             "full_transcript",
             "inspect_target",
@@ -491,3 +492,69 @@ async def test_retrieval_keeps_previous_findings_out_of_default_context():
         [m.model_dump(mode="json") for m in model.requests[0][0]]
     )
     assert json.loads(await inv.prior_findings()) == prior
+
+
+@pytest.mark.asyncio
+async def test_large_step_and_transcript_retrieval_are_paginated():
+    from scicode_scanners.failure_classification.tools import PAGE_CHARS
+
+    c = fixture_cases()
+    huge = "reasoning and previous code " * 60000
+    c.steps["1.1"]["event"].input = [ChatMessageUser(content=huge)]
+    c.events = [
+        SimpleNamespace(
+            uuid="large",
+            model_dump=lambda **kwargs: {"event": "model", "content": huge},
+        )
+    ]
+    inv = Investigation(c, "1.2", None)
+    for tool, args in (
+        (inv.retrieve_step, {"step_id": "1.1"}),
+        (inv.full_transcript, {}),
+    ):
+        page = json.loads(await tool(**args))
+        assert page["total_chars"] > 1000000
+        assert len(page["excerpt"]) == PAGE_CHARS
+        following = json.loads(await tool(**args, char_offset=page["next_char_offset"]))
+        assert following["char_offset"] == PAGE_CHARS
+        assert len(following["excerpt"]) <= PAGE_CHARS
+        final = json.loads(await tool(**args, char_offset=page["total_chars"] - 100))
+        assert final["next_char_offset"] is None and len(final["excerpt"]) == 100
+
+
+@pytest.mark.asyncio
+async def test_large_initial_evidence_is_bounded_and_remains_retrievable():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    packet = {**c.packet("1.2"), "large": "a" * 1000000}
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="answer",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                500,
+            )
+        ]
+    )
+    await investigate(model, inv, packet, Limits())
+    initial = json.loads(model.requests[0][0][1].text)
+    assert initial["next_char_offset"] == 12000
+    assert len(initial["excerpt"]) == 12000
+    remaining = json.loads(await inv.current_evidence(char_offset=12000))
+    assert remaining["char_offset"] == 12000 and remaining["total_chars"] > 1000000
+
+
+@pytest.mark.asyncio
+async def test_context_limit_prevents_oversized_followup_requests():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    giant = ModelOutput.from_message(ChatMessageAssistant(content="x" * 100001))
+    giant.usage = ModelUsage(input_tokens=10, output_tokens=1, total_tokens=11)
+    model = MockModel([giant])
+    result, provenance = await investigate(model, inv, c.packet("1.2"), Limits())
+    assert len(model.requests) == 1
+    assert result.status == "unresolved"
+    assert provenance["termination"] == "input_context_limit"
