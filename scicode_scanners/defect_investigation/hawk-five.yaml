@@ -1,0 +1,72 @@
+# Five main-problem samples; 10k base plus 20k per selected scored subproblem.
+{
+  "name": "scicode-defect-investigation-glm-adaptive-five",
+  "packages": [
+    "inspect-scout==0.5.2"
+  ],
+  "tasks": [
+    {
+      "package": "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@feca833324b98c83444c123f53749fd2949342f0",
+      "name": "scicode_scanners",
+      "items": [
+        {
+          "name": "scicode_defect_investigation",
+          "args": {
+            "implementation": "scicode",
+            "sandbox_type": "k8s",
+            "problem_ids": [
+              "5",
+              "21",
+              "58"
+            ],
+            "base_token_budget": 10000,
+            "tokens_per_subproblem": 20000,
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "name": "scicode_defect_investigation",
+          "args": {
+            "implementation": "scicode_verified",
+            "sandbox_type": "k8s",
+            "problem_ids": [
+              "5",
+              "21"
+            ],
+            "base_token_budget": 10000,
+            "tokens_per_subproblem": 20000,
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    }
+  ],
+  "models": [
+    {
+      "package": "openai",
+      "name": "openrouter",
+      "items": [
+        {
+          "name": "openrouter/z-ai/glm-5.3",
+          "args": {
+            "config": {
+              "max_retries": 0,
+              "extra_body": {
+                "reasoning": {
+                  "effort": "high"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "epochs": 1,
+  "retry_attempts": 0,
+  "max_retries": 0,
+  "runner": {
+    "cpu": "2",
+    "memory": "4Gi"
+  }
+}
