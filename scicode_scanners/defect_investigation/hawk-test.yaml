@@ -1,0 +1,83 @@
+# Two-sample investigation test with a realistic generation budget.
+{
+  "name": "scicode-defect-investigation-glm-test",
+  "packages": [
+    "inspect-scout==0.5.2"
+  ],
+  "tasks": [
+    {
+      "package": "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@4057dfa",
+      "name": "scicode_scanners",
+      "items": [
+        {
+          "name": "scicode_defect_investigation",
+          "args": {
+            "implementation": "scicode",
+            "sandbox_type": "k8s",
+            "problem_ids": [
+              "5"
+            ],
+            "generated_token_budget": 32000,
+            "finalization_reserve": 5000,
+            "model_call_limit": 50,
+            "tool_call_limit": 40,
+            "time_limit": 1800,
+            "reasoning_effort": "high",
+            "investigate_steps": [
+              "5.1"
+            ],
+            "per_call_tokens": 8000
+          }
+        },
+        {
+          "name": "scicode_defect_investigation",
+          "args": {
+            "implementation": "scicode_verified",
+            "sandbox_type": "k8s",
+            "problem_ids": [
+              "5"
+            ],
+            "generated_token_budget": 32000,
+            "finalization_reserve": 5000,
+            "model_call_limit": 50,
+            "tool_call_limit": 40,
+            "time_limit": 1800,
+            "reasoning_effort": "high",
+            "investigate_steps": [
+              "5.1"
+            ],
+            "per_call_tokens": 8000
+          }
+        }
+      ]
+    }
+  ],
+  "models": [
+    {
+      "package": "openai",
+      "name": "openrouter",
+      "items": [
+        {
+          "name": "openrouter/z-ai/glm-5.3",
+          "args": {
+            "config": {
+              "max_retries": 0,
+              "extra_body": {
+                "reasoning": {
+                  "effort": "high"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "epochs": 1,
+  "retry_attempts": 0,
+  "max_retries": 0,
+  "runner": {
+    "cpu": "2",
+    "memory": "4Gi"
+  }
+}

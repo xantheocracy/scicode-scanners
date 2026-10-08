@@ -67,6 +67,7 @@ This launches paid inference. No run is launched by importing the task or execut
 | Configuration | Generated tokens per sample | Final-report reserve | Model calls | Time per sample |
 | --- | ---: | ---: | ---: | ---: |
 | Smoke | 8,000 | 3,000 | 20 | 10 minutes |
+| Test (`hawk-test.yaml`, same two samples) | 32,000 | 5,000 | 50 | 30 minutes |
 | Pilot | 100,000 | 5,000 | 150 | 60 minutes |
 
 Finalization uses low reasoning effort to leave room for the structured report. The solver limits each model call to the remaining allowance and charges provider `output_tokens`, which includes reasoning for the OpenRouter/OpenAI-compatible route. It does not add reasoning tokens again. Missing usage conservatively charges the full call cap; reported usage above the cap fails rather than permitting budget drift. Input/history/tool-observation tokens are additional billed usage. Budget ceilings do not request minimum spend. Model billing/token accounting must still be verified on the first real GLM smoke; the automated tests use scripted outputs.
