@@ -19,7 +19,7 @@
               "5"
             ],
             "generated_token_budget": 8000,
-            "finalization_reserve": 1000,
+            "finalization_reserve": 3000,
             "model_call_limit": 20,
             "tool_call_limit": 16,
             "time_limit": 600,
@@ -39,7 +39,7 @@
               "5"
             ],
             "generated_token_budget": 8000,
-            "finalization_reserve": 1000,
+            "finalization_reserve": 3000,
             "model_call_limit": 20,
             "tool_call_limit": 16,
             "time_limit": 600,

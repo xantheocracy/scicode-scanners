@@ -81,7 +81,11 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
                     max_tokens=cap,
                     max_retries=0,
                     parallel_tool_calls=False,
-                    extra_body={"reasoning": {"effort": limits.reasoning_effort}},
+                    extra_body={
+                        "reasoning": {
+                            "effort": "low" if finalizing else limits.reasoning_effort
+                        }
+                    },
                 ),
             )
             charged = output.usage.output_tokens if output.usage is not None else cap
