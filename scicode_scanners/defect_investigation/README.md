@@ -22,7 +22,7 @@ From the `scicode-scanners` project directory, install using the project's norma
 uv pip install -e '.[hawk,test]'
 ```
 
-Docker is required locally; Hawk uses `inspect-k8s-sandbox`. Both sandbox services use image digests pinned in `sandbox/`. Network access is disabled for sandbox code. The evaluation runner downloads and checksum-verifies the released HDF5 file once; `targets_path` can instead name a local, checksum-matching release. Generated problem shards and helper files are cached under `~/.cache/scicode_defect_investigation`, configurable with `cache_dir`.
+Docker is required locally; Hawk uses `inspect-k8s-sandbox`. Both sandbox services use image digests pinned in `sandbox/`. Network access is disabled for sandbox code. The evaluation runner downloads and checksum-verifies the released HDF5 file once. Original SciCode uses `xantheocracy/scicode-mirror` at revision `2f903a64a1c4eb62c7c649b0caf7ecb2c0217590`, preserving the upstream SHA-256 and avoiding Google Drive download quotas; `targets_path` can instead name a local, checksum-matching release. Generated problem shards and helper files are cached under `~/.cache/scicode_defect_investigation`, configurable with `cache_dir`.
 
 No reference solutions or previous audit findings are sent to the agent. Benchmark-provided prerequisite code is retained. Original includes 65 evaluation problems; the pinned Verified release contains 64. Original supports its development split via `include_dev=true`; Verified's release has no development split.
 

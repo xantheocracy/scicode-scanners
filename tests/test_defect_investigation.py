@@ -422,3 +422,25 @@ def test_k8s_uses_packaged_chart():
     assert config.values == Path(values)
     assert config.restarted_container_behavior == "raise"
     assert _sandbox_spec("docker", "compose.yaml") == ("docker", "compose.yaml")
+
+
+@pytest.mark.parametrize("implementation", ["scicode", "scicode_verified"])
+def test_targets_download_from_pinned_hf(monkeypatch, tmp_path, implementation):
+    calls = []
+    checks = []
+    monkeypatch.setattr(dataset, "download", lambda *args: calls.append(args))
+    monkeypatch.setattr(dataset, "check_hash", lambda *args: checks.append(args))
+    path = dataset.targets_file(implementation, None, tmp_path)
+    assert calls == [
+        (
+            dataset.TARGET_URLS[implementation],
+            dataset.TARGET_HASHES[implementation],
+            path,
+        )
+    ]
+    assert checks == [(path, dataset.TARGET_HASHES[implementation])]
+    assert "huggingface.co/datasets/" in calls[0][0]
+    assert len(calls[0][0].split("/resolve/")[1].split("/")[0]) == 40
+    calls.clear()
+    assert dataset.targets_file(implementation, str(path), tmp_path) == path.resolve()
+    assert calls == []

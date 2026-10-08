@@ -9,7 +9,7 @@ from tempfile import NamedTemporaryFile
 
 import h5py
 from inspect_ai.dataset import MemoryDataset, Sample
-from inspect_ai.util import download, gdrive_download
+from inspect_ai.util import download
 
 from .harness import PROVIDED, REVISIONS, ROOT, TARGET_NAMES, VENDOR, helper_files
 from .prompts import evidence_packet
@@ -23,6 +23,16 @@ PROBLEM_HASHES = {
 TARGET_HASHES = {
     "scicode": "48b0272a88b17dbd29777c217e1b4fb2b019b92e11cc2add847409db9541b890",
     "scicode_verified": "8fb6e575b7b6dda5e48b04dea338fc6af4fe185774b8f19221c96945df9b4142",
+}
+TARGET_URLS = {
+    "scicode": (
+        "https://huggingface.co/datasets/xantheocracy/scicode-mirror/resolve/"
+        "2f903a64a1c4eb62c7c649b0caf7ecb2c0217590/test_data.h5"
+    ),
+    "scicode_verified": (
+        "https://huggingface.co/datasets/shhu2001/SciCode-Verified/resolve/"
+        "eea11a866be6860725258702b39ef8651ed26abd/test_data_cleaned.h5"
+    ),
 }
 
 
@@ -113,17 +123,7 @@ def targets_file(
         else cache / TARGET_NAMES[implementation]
     )
     if not override:
-        if implementation == "scicode":
-            gdrive_download(
-                "17G_k65N_6yFFZ2O-jQH00Lh6iaw3z-AW", TARGET_HASHES[implementation], path
-            )
-        else:
-            download(
-                "https://huggingface.co/datasets/shhu2001/SciCode-Verified/resolve/"
-                "eea11a866be6860725258702b39ef8651ed26abd/test_data_cleaned.h5",
-                TARGET_HASHES[implementation],
-                path,
-            )
+        download(TARGET_URLS[implementation], TARGET_HASHES[implementation], path)
     check_hash(path, TARGET_HASHES[implementation])
     return path
 
@@ -284,6 +284,7 @@ def get_dataset(
             "selected_steps": selected,
             "targets_path": str(shard),
             "targets_sha256": TARGET_HASHES[implementation],
+            "targets_source_url": TARGET_URLS[implementation],
             "shard_sha256": shard_hash,
             "problems_sha256": PROBLEM_HASHES[implementation],
             "harness_revision": REVISIONS[implementation],
