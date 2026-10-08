@@ -8,10 +8,9 @@ from inspect_ai.model import get_model
 from inspect_scout import Reference, Result, Scanner, Transcript, scanner
 
 from .adapters import REVISIONS, Implementation, load_cases
-from .assets import TARGETS, decode_targets, shard_targets, target_file, typed
+from .assets import TARGETS, decode_targets, target_file, typed
 from .checkpoints import CheckpointStore, hawk_results_uri
 from .judge import investigate
-from .sandbox import IMAGES, interpreters, investigation_sandbox
 from .schema import Limits
 from .tools import Investigation
 
@@ -24,7 +23,9 @@ def reconcile(assessment, implementation, transcript_id):
         key = [
             implementation,
             transcript_id,
-            cause.origin_type,
+            "submitted"
+            if cause.origin_type in {"current", "earlier"}
+            else cause.origin_type,
             sorted(cause.origin_steps),
             cause.category,
             " ".join(cause.defect_key.casefold().split()),
@@ -34,22 +35,17 @@ def reconcile(assessment, implementation, transcript_id):
     return rows
 
 
-@scanner(messages="all", events="all", version=1)
+@scanner(messages="all", events="all", version=2)
 def failure_classification(
     implementation: Implementation,
     generated_token_budget: int = 8192,
     finalization_reserve: int = 1536,
     per_call_tokens: int = 4096,
     tool_rounds: int = 6,
-    python_timeout: int = 30,
-    diagnostic_seconds: int = 120,
     reasoning_effort: str = "high",
     targets_path: str | None = None,
-    sandbox_image: str | None = None,
-    runtime_class: str = "gvisor",
     checkpoint_uri: str | None = None,
     dry_run: bool = False,
-    smoke_only: bool = False,
 ) -> Scanner[Transcript]:
     """Classify each failed step; dry_run performs extraction/target checks without inference."""
     if implementation not in {"scicode", "scicode_verified"}:
@@ -59,8 +55,6 @@ def failure_classification(
         finalization_reserve=finalization_reserve,
         per_call_tokens=per_call_tokens,
         tool_rounds=tool_rounds,
-        python_timeout=python_timeout,
-        diagnostic_seconds=diagnostic_seconds,
         reasoning_effort=reasoning_effort,
     )
 
@@ -81,7 +75,6 @@ def failure_classification(
                 )
             ]
         target = await target_file(implementation, targets_path)
-        step_ids = [s for s in cases.steps if not cases.steps[s]["provided"]]
         packets = {}
         for sid in failed:
             packet = cases.packet(sid)
@@ -113,84 +106,31 @@ def failure_classification(
                 )
                 for sid in failed
             ]
-        shard = shard_targets(target, step_ids)
         results, previous = [], []
         for sid in failed:
-            async with investigation_sandbox(
-                cases, shard, sandbox_image, runtime_class
-            ) as env:
-                if smoke_only:
-                    checks = {}
-                    for label, python in interpreters(cases).items():
-                        module = (
-                            "process_data"
-                            if implementation == "scicode"
-                            else "scicode.parse.parse"
-                        )
-                        filename = TARGETS[implementation]["filename"]
-                        target_args = (
-                            f"{sid!r}, {len(cases.steps[sid]['record']['test_cases'])}"
-                            + (
-                                f", {filename!r}"
-                                if implementation == "scicode_verified"
-                                else ""
-                            )
-                        )
-                        check = await env.exec(
-                            [
-                                python,
-                                "-c",
-                                (
-                                    "import sys, numpy, scipy, h5py; "
-                                    f"from {module} import process_hdf5_to_tuple; "
-                                    f"assert len(process_hdf5_to_tuple({target_args})) > 0; "
-                                    "print(sys.version); print(numpy.__version__, scipy.__version__, h5py.__version__)"
-                                ),
-                            ],
-                            timeout=30,
-                            timeout_retry=False,
-                        )
-                        if not check.success:
-                            raise RuntimeError(
-                                f"Hawk sandbox smoke check failed: {check.stderr}"
-                            )
-                        checks[label] = check.stdout
-                    return [
-                        Result(
-                            label="hawk_smoke",
-                            value=[],
-                            answer="smoke_passed",
-                            metadata={
-                                "implementation": implementation,
-                                "checks": checks,
-                                "failed_steps": len(failed),
-                            },
-                            explanation="Source extraction, target artifacts, and Hawk sandbox interpreters checked without model inference.",
-                        )
-                    ]
-                investigation = Investigation(cases, sid, target, env, limits)
-                checkpoint = CheckpointStore(
-                    checkpoint_uri or hawk_results_uri(),
-                    {
-                        "scanner_version": 1,
-                        "implementation": implementation,
-                        "transcript": t.transcript_id,
-                        "source_uri": t.source_uri,
-                        "step": sid,
-                        "limits": limits.model_dump(),
-                        "model": get_model().name,
-                        "image": sandbox_image or IMAGES[implementation],
-                        "targets": TARGETS[implementation]["sha256"],
-                    },
-                )
-                assessment, provenance = await investigate(
-                    get_model(),
-                    investigation,
-                    packets[sid],
-                    limits,
-                    previous,
-                    checkpoint,
-                )
+            investigation = Investigation(cases, sid, target)
+            checkpoint = CheckpointStore(
+                checkpoint_uri or hawk_results_uri(),
+                {
+                    "scanner_version": 2,
+                    "implementation": implementation,
+                    "transcript": t.transcript_id,
+                    "source_uri": t.source_uri,
+                    "step": sid,
+                    "limits": limits.model_dump(),
+                    "investigation_mode": "inspection_only",
+                    "model": get_model().name,
+                    "targets": TARGETS[implementation]["sha256"],
+                },
+            )
+            assessment, provenance = await investigate(
+                get_model(),
+                investigation,
+                packets[sid],
+                limits,
+                previous,
+                checkpoint,
+            )
             causes = reconcile(assessment, implementation, t.transcript_id)
             previous.extend(
                 {
@@ -218,7 +158,7 @@ def failure_classification(
                 "adapter_revision": REVISIONS[implementation],
                 "source_revision": cases.source_revision,
                 "targets_sha256": TARGETS[implementation]["sha256"],
-                "sandbox_image": sandbox_image or IMAGES[implementation],
+                "investigation_mode": "inspection_only",
                 "settings": cases.settings,
                 "judge_model": str(get_model().name),
             }
@@ -247,6 +187,7 @@ def failure_classification(
                     ],
                     metadata={
                         "source": source,
+                        "investigation_mode": "inspection_only",
                         "assessment": result,
                         "investigation": provenance,
                     },

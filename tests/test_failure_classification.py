@@ -25,7 +25,6 @@ from scicode_scanners.failure_classification.assets import (
 )
 from scicode_scanners.failure_classification.checkpoints import CheckpointStore
 from scicode_scanners.failure_classification.judge import investigate
-from scicode_scanners.failure_classification.sandbox import FreshSandbox
 from scicode_scanners.failure_classification.scanner import reconcile
 from scicode_scanners.failure_classification.schema import Assessment, Cause, Limits
 from scicode_scanners.failure_classification.tools import Investigation
@@ -248,7 +247,7 @@ def output(call, tokens, reasoning=0):
 @pytest.mark.asyncio
 async def test_budget_counts_reasoning_once_and_informs_judge():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None, None, Limits())
+    inv = Investigation(c, "1.2", None)
     model = MockModel(
         [
             output(
@@ -283,7 +282,7 @@ async def test_finalization_disables_tools_and_respects_remaining_budget():
         tool_rounds=1,
     )
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None, None, limits)
+    inv = Investigation(c, "1.2", None)
     model = MockModel(
         [
             output(
@@ -312,7 +311,7 @@ async def test_finalization_disables_tools_and_respects_remaining_budget():
 async def test_checkpoint_reserves_charge_before_request_and_reuses_answer(tmp_path):
     store = CheckpointStore(str(tmp_path), {"case": "1.2"})
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None, None, Limits())
+    inv = Investigation(c, "1.2", None)
 
     class CheckedModel(MockModel):
         async def generate(self, history, tools, config):
@@ -346,7 +345,7 @@ async def test_checkpoint_reserves_charge_before_request_and_reuses_answer(tmp_p
 async def test_interrupted_call_consumes_reservation_on_resume(tmp_path):
     store = CheckpointStore(str(tmp_path), {"case": "interrupted"})
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None, None, Limits())
+    inv = Investigation(c, "1.2", None)
 
     class InterruptedModel:
         async def generate(self, *args, **kwargs):
@@ -376,25 +375,10 @@ async def test_interrupted_call_consumes_reservation_on_resume(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_python_timeout_is_not_recorded_as_original_failure():
-    class TimeoutSandbox:
-        async def exec(self, *args, **kwargs):
-            assert kwargs["timeout_retry"] is False
-            raise TimeoutError
-
-    c = fixture_cases(True)
-    inv = Investigation(c, "1.2", None, TimeoutSandbox(), Limits())
-    result = json.loads(await inv.rerun("1.2", environment="2024"))
-    assert result["per_environment"]["2024"]["timed_out"]
-    assert "diagnostic" in result["note"]
-    assert c.scores == {"1.1": 0, "1.2": 0}
-
-
-@pytest.mark.asyncio
 async def test_empty_provider_responses_cannot_create_unbounded_input_spend():
     c = fixture_cases()
     limits = Limits()
-    inv = Investigation(c, "1.2", None, None, limits)
+    inv = Investigation(c, "1.2", None)
     empty = ModelOutput.from_message(ChatMessageAssistant(content=""))
     empty.usage = ModelUsage(input_tokens=100, output_tokens=0, total_tokens=100)
     model = MockModel([empty] * (limits.tool_rounds + 4))
@@ -404,40 +388,106 @@ async def test_empty_provider_responses_cannot_create_unbounded_input_spend():
 
 
 @pytest.mark.asyncio
-async def test_verified_accepts_second_environment_pass():
-    class DualSandbox:
-        async def exec(self, cmd, **kwargs):
-            passed = "2025" in cmd[0]
-            return SimpleNamespace(
-                success=passed, returncode=0 if passed else 1, stdout="", stderr=""
-            )
+@pytest.mark.parametrize("verified", [False, True])
+async def test_inspection_only_scanner_preserves_causes_without_sandbox(
+    monkeypatch, verified
+):
+    import builtins
+    import importlib
 
-    c = fixture_cases(True)
-    inv = Investigation(c, "1.2", None, DualSandbox(), Limits())
-    result = json.loads(await inv.rerun("1.2"))
-    assert result["passed"]
-    assert not result["per_environment"]["2024"]["passed"]
-    assert result["per_environment"]["2025"]["passed"]
+    scanner_module = importlib.import_module(
+        "scicode_scanners.failure_classification.scanner"
+    )
+    c = fixture_cases(verified)
+    first = assessment()
+    first.causes[0].origin_type = "current"
+    first.causes[0].dependency_path = ["1.1"]
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="first",
+                    function="answer",
+                    arguments={"assessment": first.model_dump()},
+                ),
+                800,
+            ),
+            output(
+                ToolCall(
+                    id="second",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                800,
+            ),
+        ]
+    )
+
+    async def cases(*args):
+        return c
+
+    async def targets(*args):
+        return "fixture.h5"
+
+    original_import = builtins.__import__
+
+    def forbid_sandbox(name, *args, **kwargs):
+        if name.startswith("k8s_sandbox"):
+            raise AssertionError("Inspection must not import a sandbox provider")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", forbid_sandbox)
+    monkeypatch.setattr(scanner_module, "load_cases", cases)
+    monkeypatch.setattr(scanner_module, "target_file", targets)
+    monkeypatch.setattr(scanner_module, "decode_targets", lambda *args: [1])
+    monkeypatch.setattr(scanner_module, "get_model", lambda: model)
+    monkeypatch.setattr(scanner_module, "hawk_results_uri", lambda: None)
+    model.name = "mock-judge"
+    results = await scanner_module.failure_classification(c.implementation)(
+        c.transcript
+    )
+    assert [r.label for r in results] == ["1.1", "1.2"]
+    causes = [r.metadata["assessment"]["causes"][0] for r in results]
+    assert causes[0]["cause_id"] == causes[1]["cause_id"]
+    for result in results:
+        assert result.metadata["investigation_mode"] == "inspection_only"
+        assert (
+            result.metadata["investigation"]["investigation_mode"] == "inspection_only"
+        )
+    for history, tools, _ in model.requests:
+        assert {t.name for t in tools} == {
+            "answer",
+            "retrieve_step",
+            "full_transcript",
+            "inspect_target",
+            "helper_source",
+            "prior_findings",
+        }
+        assert "Never claim to have executed code" in history[0].text
+        update = json.loads(history[-1].text)["budget_update"]
+        assert update["investigation_mode"] == "inspection_only"
+        assert "remaining_python_seconds" not in update
 
 
 @pytest.mark.asyncio
-async def test_diagnostics_restore_canonical_artifacts_in_fresh_directories():
-    class RecordingEnvironment:
-        def __init__(self):
-            self.writes = []
-            self.directories = []
-
-        async def write_file(self, path, content):
-            self.writes.append((path, content))
-
-        async def exec(self, cmd, **kwargs):
-            if "cwd" in kwargs:
-                self.directories.append(kwargs["cwd"])
-            return SimpleNamespace(success=True, returncode=0, stdout="", stderr="")
-
-    env = RecordingEnvironment()
-    sandbox = FreshSandbox(env, {"test_data.h5": b"canonical"})
-    await sandbox.exec(["python", "-c", "modify targets"], timeout=30)
-    await sandbox.exec(["python", "-c", "inspect targets"], timeout=30)
-    assert len(set(env.directories)) == 2
-    assert [content for _, content in env.writes] == [b"canonical", b"canonical"]
+async def test_retrieval_keeps_previous_findings_out_of_default_context():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    prior = [{"defect_key": "previous hypothesis"}]
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="answer",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                500,
+            )
+        ]
+    )
+    await investigate(model, inv, c.packet("1.2"), Limits(), previous_causes=prior)
+    assert "previous hypothesis" not in json.dumps(
+        [m.model_dump(mode="json") for m in model.requests[0][0]]
+    )
+    assert json.loads(await inv.prior_findings()) == prior

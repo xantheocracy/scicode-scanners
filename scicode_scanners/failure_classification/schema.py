@@ -15,7 +15,7 @@ class Cause(BaseModel):
     origin_steps: list[str]
     dependency_path: list[str]
     evidence: list[str] = Field(
-        min_length=1, description="Stable M/E/T/X references and quotations."
+        min_length=1, description="Stable M/E/T references and quotations."
     )
     causal_contribution: str = Field(
         min_length=1,
@@ -51,8 +51,6 @@ class Limits(BaseModel):
     finalization_reserve: int = Field(default=1536, ge=512)
     per_call_tokens: int = Field(default=4096, ge=512)
     tool_rounds: int = Field(default=6, ge=1)
-    python_timeout: int = Field(default=30, ge=1)
-    diagnostic_seconds: int = Field(default=120, ge=1)
     reasoning_effort: Literal["low", "high", "max"] = "high"
 
     @model_validator(mode="after")

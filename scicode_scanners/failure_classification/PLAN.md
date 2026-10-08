@@ -1,3 +1,5 @@
+> Updated 2026-10-08: the implemented scanner is inspection-only. Python diagnostics, test reruns, sandbox provisioning, and execution time limits described in the original plan below are deferred. The judge uses read-only evidence tools and records uncertainty when execution would be needed. Scanner version 2 and its mode identifier separate new checkpoints from earlier sandbox attempts. See README.md for current behavior and commands.
+
 # Failure classification scanner — review draft
 
 ## Objective

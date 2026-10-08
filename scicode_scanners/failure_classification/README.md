@@ -6,19 +6,19 @@ Ask “why did this subproblem fail?” for the default SciCode and SciCode-Veri
 
 `underspecified` means the submitted behavior follows a valid interpretation of the prompt but the test imposes an unstated requirement. `wrongly_specified` means an explicit prompt requirement conflicts with the test. `model_error` means a model mistake causally contributes. `other` describes an established cause outside those definitions.
 
-The result `value` is a list of unique supported categories. `answer` is `resolved`, `partially_resolved`, or `unresolved`. Full assessments live in `metadata.assessment`; the source identity is in `metadata.source`, and judge calls, token usage, retrievals, diagnostic scripts and outputs are in `metadata.investigation`. Unresolved assessments have an empty category list. All-passing transcripts return an accounting result without a judge call.
+The result `value` is a list of unique supported categories. `answer` is `resolved`, `partially_resolved`, or `unresolved`. Full assessments live in `metadata.assessment`; the source identity is in `metadata.source`, and judge calls, token usage, read-only evidence retrievals are in `metadata.investigation`. Unresolved assessments have an empty category list. All-passing transcripts return an accounting result without a judge call.
 
 Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence and `causal_contribution`. A stable `cause_id` permits deduplication across affected steps within the same transcript. Matching is conservative: category, origin and normalized `defect_key` must agree. Different model attempts remain separate. Inspect the evidence before treating findings or deduplication as validated.
 
 ## Evidence and tools
 
-The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `python`, `rerun`, `prior_findings`, and the structured `answer` tool.
+The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `prior_findings`, and the structured `answer` tool.
 
 No reference solutions or audit findings are exposed. Reference-code fields present in source metadata are removed recursively. Author-provided steps are available because they were visible to the evaluated model. HDF5 targets are the grader's expectations, not a guarantee of scientific correctness.
 
-Python runs in fresh working directories in a Kubernetes sandbox on Hawk, using the source harness's image, helper modules, target decoding and interpreter(s). Sandbox images are pinned by digest. The sandbox cannot access the network or a Kubernetes API token. Each experiment starts with canonical artifacts so modifications from earlier diagnostics cannot affect later results. Source submissions and results remain intact.
+The scanner is inspection-only. It does not provision a sandbox, execute submitted or model-generated code, or rerun tests. The judge distinguishes original recorded observations from deductions and untested hypotheses. Numerical behavior, upstream inheritance, or proposed fixes that require execution to verify must remain uncertain; material gaps are recorded in assessment limitations.
 
-Verified's default grading accepts a pass in either the 2024 or 2025 interpreter. Actual source settings override defaults, including scientific background and environment selection. Diagnostic timeouts are recorded separately from original grading failures.
+Verified's default grading accepts a pass in either the 2024 or 2025 interpreter. The scanner preserves the recorded results and actual source settings, including scientific background and environment selection.
 
 ## Run through Hawk
 
@@ -46,11 +46,9 @@ hawk scan run scicode_scanners/failure_classification/hawk-scicode-pilot.yaml
 hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-pilot.yaml
 ```
 
-Smoke configurations select a known failed transcript and exercise extraction, HDF5 artifacts and sandbox interpreters without inference. Pilot configurations select two shuffled main-problem transcripts each; each main problem may contain several failed steps. They launch paid GLM-5.3 inference. Review these before using the corresponding `-full.yaml` configurations.
+Smoke configurations select a known failed transcript and exercise extraction and HDF5 artifacts without inference. Pilot configurations select two shuffled main-problem transcripts each; each main problem may contain several failed steps. They launch paid GLM-5.3 inference. Review these before using the corresponding `-full.yaml` configurations.
 
-Native Hawk scan jobs need permission to provision Kubernetes sandboxes. The current deployment's scan-runner service account was denied access to sandbox ConfigMaps during the remote smoke check. Enable the deployment's supported sandbox provisioning permissions before running these configurations; inference pilots have not been launched. Hawk supplies its own Kubernetes sandbox package, so the configurations intentionally do not override that package with a PyPI version.
-
-Source logs are read from their Hawk URI, with full attachments resolved. Target files are downloaded with pinned checksums and only relevant problem groups are copied into sandboxes. Custom target files must match the expected full-file checksum.
+Native Hawk scan jobs can run this scanner without sandbox permissions. Source logs are read from their Hawk URI with full attachments resolved. Target files are downloaded with pinned checksums and decoded with the exact source harness helpers. Custom target files must match the expected full-file checksum.
 
 Opus 5.5-only configurations use an exact source-model filter and pin the scanner package to an implementation commit:
 
@@ -59,15 +57,15 @@ hawk scan run scicode_scanners/failure_classification/hawk-scicode-opus55.yaml
 hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-opus55.yaml
 ```
 
-These select 65 SciCode transcripts (106 failed scored steps) and 64 Verified transcripts (48 failed scored steps). The source model is Opus 5.5; the classification judge remains GLM-5.3. All-passing transcripts make no judge calls. The same sandbox permission prerequisite applies.
+These select 65 SciCode transcripts (106 failed scored steps) and 64 Verified transcripts (48 failed scored steps). The source model is Opus 5.5; the classification judge remains GLM-5.3. All-passing transcripts make no judge calls. These configurations use the same inspection-only scanner.
 
 ## Budget and resume
 
 The default judge is GLM-5.3 with `high` reasoning, the middle supported level. The allowance is **8,192 generated tokens per failed subproblem**, including reasoning and tool arguments across calls, with **1,536 reserved for finalization**. Investigation calls are capped at 4,096 tokens. The judge is told its total and remaining allowance before each call; the harness enforces it. Inputs are accounted separately. There is no global dollar cap.
 
-Defaults also allow six investigation tool calls, 30 seconds per Python diagnostic and 120 seconds total diagnostic execution. All limits are configurable scanner arguments. Model calls are also capped at ten by default to bound empty or malformed responses. No automatic model retries are enabled. Missing usage is charged at the request's full allowance. Budget exhaustion produces an unresolved assessment rather than another unbudgeted call.
+Defaults also allow six read-only investigation tool calls. All limits are configurable scanner arguments. Model calls are also capped at ten by default to bound empty or malformed responses. No automatic model retries are enabled. Missing usage is charged at the request's full allowance. Budget exhaustion produces an unresolved assessment rather than another unbudgeted call.
 
-Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. A restarted sandbox has fresh files; saved diagnostic evidence remains available to the judge.
+Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. Inspection-only checkpoints use scanner version 2 and a mode identifier, so they cannot reuse older sandbox investigations.
 
 ```bash
 hawk scan resume SCAN_RUN_ID
@@ -89,8 +87,8 @@ The command reports affected-step and distinct-cause totals. Results retain sour
 python -m pytest -q
 ```
 
-Tests cover extraction differences, retry handling, reference-field removal, cumulative code, origin validation, deduplication, both HDF5 decoders, token accounting and budget awareness, finalization, checkpoints and diagnostic timeouts. These tests use fixtures and mocked model calls; they do not run evaluations locally.
+Tests cover extraction differences, retry handling, reference-field removal, cumulative code, origin validation, deduplication, both HDF5 decoders, token accounting and budget awareness, finalization, checkpoints, read-only tool restrictions, and both harnesses through the full scanner path. These tests use fixtures and mocked model calls; they do not run evaluations locally.
 
-Extraction was also checked against all eight source logs: 260 SciCode transcripts (573 failed steps) and 256 Verified transcripts (195 failed steps). Reconstructed SciCode grading matched all 1,119 recorded programs. All 183 distinct failed SciCode target groups and 101 Verified groups decoded successfully. The six configurations validate against Hawk 3.6.0. Semantic classification quality requires reviewing the Hawk pilot.
+Extraction was also checked against all eight source logs: 260 SciCode transcripts (573 failed steps) and 256 Verified transcripts (195 failed steps). Reconstructed SciCode grading matched all 1,119 recorded programs. All 183 distinct failed SciCode target groups and 101 Verified groups decoded successfully. The eight configurations validate against Hawk 3.6.0. Semantic classification quality requires reviewing the Hawk pilot.
 
 The detailed design is in [PLAN.md](PLAN.md); vendored helper provenance is in [vendor/README.md](vendor/README.md).

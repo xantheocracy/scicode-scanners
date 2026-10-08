@@ -8,7 +8,7 @@ transcripts:
     where:
     - model: openrouter/openrouter/anthropic/claude-opus-5.5
 scanners:
-- package: scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@7cd33863cb8b6bb476e05b42e035488814db08a0
+- package: scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@failure-classification-scanner
   name: scicode_scanners
   items:
   - name: failure_classification

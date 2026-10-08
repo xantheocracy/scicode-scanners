@@ -21,7 +21,7 @@ scanners:
           generated_token_budget: 8192
           finalization_reserve: 1536
           reasoning_effort: high
-          smoke_only: true
+          dry_run: true
 
 models:
   - package: openai

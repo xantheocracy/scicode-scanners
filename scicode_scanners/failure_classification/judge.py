@@ -25,8 +25,8 @@ HDF5 outputs describe the grader; they are not proof of scientific correctness. 
 Use unresolved when evidence is insufficient, not other. Use partially_resolved when some causes are established but uncertainty remains.
 Trace origins: current step, preceding step(s), author-provided code, external, or unknown. Earlier passing steps can contain defects exposed later. Inherited defects retain their originating category. Do not attribute causality just because a previous step failed.
 Retrieve earlier descriptions, code, exposed reasoning or full transcripts only when needed. Reasoning may be unavailable, which does not exclude the transcript.
-Use Python to examine concrete hypotheses; print decisive evidence. Reruns use diagnostic time limits, so a diagnostic timeout alone does not reproduce an original grading timeout. Counterfactual changes must be labelled. Never treat a proposed patch as the original submission.
-Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target], X:<experiment> references and relevant quotations. Keep evidence specific and consider alternatives.
+This is an inspection-only investigation. Code execution and reruns are unavailable. Distinguish original recorded observations from deductions by inspection and untested hypotheses. Never claim to have executed code, verified a fix, or reproduced a failure. A proposed patch or imagined output is not experimental evidence. Establish causality from specific code, requirements, test expectations and recorded results; leave unsupported causal hypotheses in alternatives_considered. Use partially_resolved or unresolved when execution would be needed to distinguish plausible causes, especially numerical behavior or upstream dependencies. Record material verification gaps in limitations.
+Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target] references and relevant quotations. Keep evidence specific and consider alternatives.
 Use answer(assessment=...) to finish. Retrieve prior_findings when useful to reuse a defect_key for an identical originating defect. Earlier same-scan assessments are hypotheses to verify, not ground truth. Do not repeat a cause solely because multiple assertions fail.
 Your generated-token allowance covers reasoning, tool arguments, corrections and final output across ALL calls. The harness updates remaining tokens each turn. Reserve the indicated finalization allowance, prioritize decisive tests, and finish before exhaustion. Tool outputs and input context do not consume generated-token allowance.
 """
@@ -68,8 +68,6 @@ async def investigate(
         history = TypeAdapter(list[ChatMessage]).validate_python(saved["history"])
         calls = saved["calls"]
         investigation.trace = saved["tools"]
-        investigation.seconds = saved["diagnostic_seconds"]
-        investigation.experiments = saved["experiments"]
 
     async def save(reserved=0):
         if checkpoint:
@@ -81,8 +79,6 @@ async def investigate(
                     "history": [m.model_dump(mode="json") for m in history],
                     "calls": calls,
                     "tools": investigation.trace,
-                    "diagnostic_seconds": investigation.seconds,
-                    "experiments": investigation.experiments,
                 }
             )
 
@@ -109,9 +105,7 @@ async def investigate(
                             "remaining_tool_rounds": max(
                                 0, limits.tool_rounds - rounds
                             ),
-                            "remaining_python_seconds": max(
-                                0, limits.diagnostic_seconds - investigation.seconds
-                            ),
+                            "investigation_mode": "inspection_only",
                         },
                         "instruction": "Submit your final assessment now; investigation tools are disabled."
                         if finalizing
@@ -195,6 +189,7 @@ async def investigate(
                 termination = "answered"
                 provenance = {
                     "limits": limits.model_dump(),
+                    "investigation_mode": "inspection_only",
                     "generated_tokens": used,
                     "termination": termination,
                     "calls": calls,
@@ -248,6 +243,7 @@ async def investigate(
     )
     provenance = {
         "limits": limits.model_dump(),
+        "investigation_mode": "inspection_only",
         "generated_tokens": used,
         "termination": termination,
         "calls": calls,
