@@ -363,7 +363,8 @@ async def test_agent_generated_budget_and_partial_evidence(monkeypatch):
         per_call_tokens=800,
         model_calls=10,
     )
-    await agent.investigate(limits)(state, None)
+    state.metadata["generation_limits"] = limits.model_dump()
+    await agent.investigate(Limits())(state, None)
     assert sum(caps) == 2000
     assert caps[-1] == 500
     assert state.store.get("defect_report") is None
@@ -507,3 +508,32 @@ async def test_agent_reserves_tokens_for_report_repair(monkeypatch):
     )(state, None)
     assert caps == [2000, 1000]
     assert state.store.get("defect_termination") == "submitted"
+
+
+@pytest.mark.parametrize("fixed", [None, 32000])
+def test_task_scales_limits_by_selected_steps(monkeypatch, fixed):
+    import importlib
+
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    task_module = importlib.import_module("scicode_scanners.defect_investigation.task")
+    samples = MemoryDataset(
+        [
+            Sample(
+                id=str(n),
+                input="Investigate",
+                metadata={"selected_steps": [f"1.{i}" for i in range(n)]},
+            )
+            for n in (1, 4)
+        ]
+    )
+    monkeypatch.setattr(task_module, "get_dataset", lambda *args: samples)
+    task_module.scicode_defect_investigation(generated_token_budget=fixed)
+    for sample, count in zip(samples, (1, 4)):
+        limits = sample.metadata["generation_limits"]
+        budget = fixed if fixed is not None else 10000 + 20000 * count
+        assert limits["generated_tokens"] == budget
+        assert limits["finalization_reserve"] == max(5000, budget // 10)
+        assert limits["tool_calls"] == 10 + 20 * count
+        assert limits["model_calls"] == 20 + 20 * count
+        assert sample.metadata["budget_policy"]["selected_subproblems"] == count

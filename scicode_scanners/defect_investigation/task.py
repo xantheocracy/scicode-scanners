@@ -39,15 +39,17 @@ def scicode_defect_investigation(
     sandbox_type: str = "docker",
     sandbox_config: str | None = None,
     grading_environments: str = "both",
-    generated_token_budget: int = 100_000,
-    finalization_reserve: int = 5_000,
+    generated_token_budget: int | None = None,
+    base_token_budget: int = 10_000,
+    tokens_per_subproblem: int = 20_000,
+    finalization_reserve: int | None = None,
     per_call_tokens: int = 8_000,
-    tool_call_limit: int = 140,
-    model_call_limit: int = 150,
+    tool_call_limit: int | None = None,
+    model_call_limit: int | None = None,
     diagnostic_timeout: int = 120,
     grading_timeout: int = 1800,
     reasoning_effort: str = "high",
-    time_limit: int = 3600,
+    time_limit: int | None = None,
     max_prompt_chars: int = 500_000,
 ) -> Task:
     interpreters(implementation, grading_environments)
@@ -55,16 +57,10 @@ def scicode_defect_investigation(
         raise ValueError(
             "sandbox_type must be docker or k8s; host execution is unsupported."
         )
-    limits = Limits(
-        generated_tokens=generated_token_budget,
-        finalization_reserve=finalization_reserve,
-        per_call_tokens=per_call_tokens,
-        tool_calls=tool_call_limit,
-        model_calls=model_call_limit,
-        diagnostic_timeout=diagnostic_timeout,
-        grading_timeout=grading_timeout,
-        reasoning_effort=reasoning_effort,
-    )
+    if base_token_budget < 0 or tokens_per_subproblem < 1:
+        raise ValueError(
+            "Budget base must be nonnegative and per-subproblem allowance positive."
+        )
     config = sandbox_config or str(
         ROOT
         / "sandbox"
@@ -81,6 +77,30 @@ def scicode_defect_investigation(
         max_prompt_chars,
     )
     for sample in dataset:
+        count = len(sample.metadata["selected_steps"])
+        budget = (
+            generated_token_budget
+            if generated_token_budget is not None
+            else base_token_budget + tokens_per_subproblem * count
+        )
+        limits = Limits(
+            generated_tokens=budget,
+            finalization_reserve=(
+                finalization_reserve
+                if finalization_reserve is not None
+                else max(5000, budget // 10)
+            ),
+            per_call_tokens=per_call_tokens,
+            tool_calls=tool_call_limit
+            if tool_call_limit is not None
+            else 10 + 20 * count,
+            model_calls=model_call_limit
+            if model_call_limit is not None
+            else 20 + 20 * count,
+            diagnostic_timeout=diagnostic_timeout,
+            grading_timeout=grading_timeout,
+            reasoning_effort=reasoning_effort,
+        )
         sample.metadata.update(
             {
                 "sandbox_config": config,
@@ -91,14 +111,31 @@ def scicode_defect_investigation(
                 "grading_environments": grading_environments,
                 "generation_limits": limits.model_dump(),
                 "prompt_version": 1,
+                "budget_policy": {
+                    "mode": "fixed"
+                    if generated_token_budget is not None
+                    else "per_subproblem",
+                    "selected_subproblems": count,
+                    "base_tokens": base_token_budget,
+                    "tokens_per_subproblem": tokens_per_subproblem,
+                },
             }
         )
+    fallback_limits = Limits()
+    effective_time_limit = (
+        time_limit
+        if time_limit is not None
+        else max(
+            max(1800, 900 + 300 * len(sample.metadata["selected_steps"]))
+            for sample in dataset
+        )
+    )
     return Task(
         dataset=dataset,
-        solver=investigate(limits, grading_environments),
-        scorer=validate_findings(limits, grading_environments),
+        solver=investigate(fallback_limits, grading_environments),
+        scorer=validate_findings(fallback_limits, grading_environments),
         sandbox=_sandbox_spec(sandbox_type, config),
-        time_limit=time_limit,
+        time_limit=effective_time_limit,
         version=1,
         metadata={
             "implementation": implementation,

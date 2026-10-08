@@ -20,7 +20,12 @@ from .tools import Investigation, validate_report
 @solver
 def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        investigation = Investigation(state, limits, grading_environments)
+        sample_limits = (
+            Limits.model_validate(state.metadata["generation_limits"])
+            if "generation_limits" in state.metadata
+            else limits
+        )
+        investigation = Investigation(state, sample_limits, grading_environments)
         state.messages.insert(0, ChatMessageSystem(content=INSTRUCTIONS))
         used, tool_count, repairs = 0, 0, 0
         state.store.set("defect_evidence", [])
@@ -42,16 +47,18 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
             "semantic_check": investigation.semantic_check,
             "submit_report": submit_report,
         }
-        for turn in range(limits.model_calls):
-            remaining = limits.generated_tokens - used
+        for turn in range(sample_limits.model_calls):
+            remaining = sample_limits.generated_tokens - used
             finalizing = (
-                remaining <= limits.finalization_reserve
-                or tool_count >= limits.tool_calls
-                or turn >= limits.model_calls - 2
+                remaining <= sample_limits.finalization_reserve
+                or tool_count >= sample_limits.tool_calls
+                or turn >= sample_limits.model_calls - 2
             )
             cap = min(
-                limits.per_call_tokens,
-                remaining if finalizing else remaining - limits.finalization_reserve,
+                sample_limits.per_call_tokens,
+                remaining
+                if finalizing
+                else remaining - sample_limits.finalization_reserve,
             )
             # Leave room to correct a rejected structured report.
             if finalizing and repairs == 0 and remaining > 1000:
@@ -63,9 +70,9 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
                     content=json.dumps(
                         {
                             "remaining_generated_tokens": remaining,
-                            "finalization_reserve": limits.finalization_reserve,
+                            "finalization_reserve": sample_limits.finalization_reserve,
                             "remaining_tool_calls": max(
-                                0, limits.tool_calls - tool_count
+                                0, sample_limits.tool_calls - tool_count
                             ),
                             "instruction": "Submit a compact report now; only submit_report is available. Use null candidate_evidence without canonical_grade evidence, and suspected/inconclusive for unverified claims. Do not repeat programs or diagnostics."
                             if finalizing
@@ -86,7 +93,9 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
                     parallel_tool_calls=False,
                     extra_body={
                         "reasoning": {
-                            "effort": "low" if finalizing else limits.reasoning_effort
+                            "effort": "low"
+                            if finalizing
+                            else sample_limits.reasoning_effort
                         }
                     },
                 ),
@@ -127,7 +136,7 @@ def investigate(limits: Limits, grading_environments: str = "both") -> Solver:
                     if call.function not in functions:
                         raise ValueError("Unknown tool.")
                     if call.function != "submit_report" and (
-                        finalizing or tool_count >= limits.tool_calls
+                        finalizing or tool_count >= sample_limits.tool_calls
                     ):
                         raise ValueError("Tool allowance exhausted; submit the report.")
                     if call.function == "submit_report":

@@ -24,7 +24,13 @@ def validate_findings(limits: Limits, grading_environments: str = "both") -> Sco
         evidence = state.store.get("defect_evidence", [])
         validate_report(report, state.metadata, evidence)
         refs = {item["id"]: item for item in evidence}
-        investigation = Investigation(state, limits, grading_environments)
+        investigation = Investigation(
+            state,
+            Limits.model_validate(state.metadata["generation_limits"])
+            if "generation_limits" in state.metadata
+            else limits,
+            grading_environments,
+        )
         replays = {}
         details = []
         for finding in report.findings:

@@ -96,3 +96,11 @@ The Docker tests use scripted agent outputs and synthetic HDF5 fixtures, exercis
 Bundled benchmark assets and harness snapshots are hashed in `asset_manifest.json`; provenance is included in each sample. See `vendor/README.md` for source revisions and licenses.
 
 Inspect architecture references: [custom solvers](https://inspect.aisi.org.uk/solvers.html), [sandboxes](https://inspect.aisi.org.uk/sandboxing.html), and [Hawk eval-set configuration](https://hawk.metr.org/user-guide/eval-set-config-reference/).
+
+## Budgets by problem size
+
+By default each sample receives `base_token_budget + tokens_per_subproblem * len(selected_steps)` generated tokens (10,000 + 20,000 per selected scored subproblem). Benchmark-provided steps are excluded. `generated_token_budget` overrides this with a fixed allowance for smoke tests. Effective limits and the budget policy are recorded in sample metadata and used by the solver and replay scorer.
+
+The report reserve defaults to 10% of the budget, with a 5,000-token minimum. Tool/model-call allowances scale with selected-step count; explicit arguments override them. The task time limit defaults to the largest sample's allowance: max(30 minutes, 15 minutes + 5 minutes per selected step).
+
+`hawk-five.yaml` tests original problems 5, 21, 58 and Verified problems 5, 21: five samples, 310,000 generated tokens maximum in total. Automatic retries and checkpointing are disabled.
