@@ -12,7 +12,11 @@ Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence an
 
 ## Evidence and tools
 
-The initial packet contains current requirements, the current response/code, tests, original grading evidence and typed HDF5 target previews. Earlier transcript context and exposed reasoning are retrieved on demand. The tools are `current_evidence`, `retrieve_step`, `full_transcript`, `inspect_target`, `helper_source`, `prior_findings`, and the structured `answer` tool.
+The initial packet contains the current submitted solution, all preceding solutions (including author-provided code), their subproblem descriptions and interfaces, dependency imports, and the current tests. HDF5 targets are represented only by type, shape/dtype for arrays and sparse matrices, or container size; values are retrieved on demand. The packet excludes raw responses, generation prompts, system instructions, grading output, and run settings.
+
+The tools are `current_evidence` (packet pagination), `retrieve_step` (exact step evidence and model messages), `full_transcript` (event reading and literal search), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), and the structured `answer` tool. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
+
+Scanner version 4 changes the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
 
 Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Oversized initial evidence is paginated too, with the rest available through `current_evidence`. Omitted text is explicitly marked incomplete. A conservative 100,000-byte serialized-history ceiling stops investigation with an unresolved `input_context_limit` assessment before sending an oversized request.
 

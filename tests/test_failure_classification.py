@@ -120,7 +120,11 @@ def test_reference_fields_removed_recursively():
     packet = json.dumps(cases.packet("1.2"))
     assert "FORBIDDEN" not in json.dumps(cases.problem)
     assert "secret earlier code" not in packet
-    assert "NEXT STEP" in packet
+    assert "NEXT STEP" not in packet
+    assert (
+        cases.packet("1.2")["previous_solutions"][0]["submitted_code"].strip()
+        == "def f(): return 0"
+    )
     assert redact({"x": [{"ground_truth_code": "secret", "ok": 1}]}) == {
         "x": [{"ok": 1}]
     }
@@ -461,8 +465,6 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
             "retrieve_step",
             "full_transcript",
             "inspect_target",
-            "helper_source",
-            "prior_findings",
         }
         assert "Never claim to have executed code" in history[0].text
         update = json.loads(history[-1].text)["budget_update"]
@@ -491,7 +493,7 @@ async def test_retrieval_keeps_previous_findings_out_of_default_context():
     assert "previous hypothesis" not in json.dumps(
         [m.model_dump(mode="json") for m in model.requests[0][0]]
     )
-    assert json.loads(await inv.prior_findings()) == prior
+    assert "prior_findings" not in inv.functions
 
 
 @pytest.mark.asyncio
@@ -545,6 +547,9 @@ async def test_large_initial_evidence_is_bounded_and_remains_retrievable():
     assert len(initial["excerpt"]) == 12000
     remaining = json.loads(await inv.current_evidence(char_offset=12000))
     assert remaining["char_offset"] == 12000 and remaining["total_chars"] > 1000000
+    serialized = json.dumps({"case": packet}, ensure_ascii=False, default=str)
+    assert initial["excerpt"] == serialized[:12000]
+    assert remaining["excerpt"] == serialized[12000:24000]
 
 
 @pytest.mark.asyncio
@@ -558,3 +563,74 @@ async def test_context_limit_prevents_oversized_followup_requests():
     assert len(model.requests) == 1
     assert result.status == "unresolved"
     assert provenance["termination"] == "input_context_limit"
+
+
+def test_initial_packet_contains_only_scoped_evidence():
+    c = fixture_cases()
+    c.steps["1.2"]["response"] = "UNNEEDED_RESPONSE"
+    c.steps["1.2"]["current_prompt"] = "UNNEEDED_PROMPT"
+    c.grading["1.2"] = {"output": "UNNEEDED_GRADING"}
+    packet = c.packet("1.2")
+    assert set(packet) == {
+        "implementation",
+        "affected_step",
+        "current_solution",
+        "previous_solutions",
+        "dependencies",
+        "tests",
+    }
+    assert "UNNEEDED" not in json.dumps(packet)
+    assert [s["step"] for s in packet["previous_solutions"]] == ["1.1"]
+    assert not c.packet("1.1")["previous_solutions"]
+
+
+def test_large_target_metadata_has_no_values():
+    from scicode_scanners.failure_classification.assets import target_metadata
+
+    metadata = target_metadata(np.zeros((1000, 1000)))
+    assert metadata == {"type": "ndarray", "shape": [1000, 1000], "dtype": "float64"}
+    assert len(json.dumps(metadata)) < 100
+
+
+@pytest.mark.asyncio
+async def test_matrix_target_slice(monkeypatch):
+    import scicode_scanners.failure_classification.tools as tools_module
+
+    matrix = np.arange(100).reshape(10, 10)
+    monkeypatch.setattr(tools_module, "decode_targets", lambda *args: [matrix])
+    inv = Investigation(fixture_cases(), "1.2", "fixture.h5")
+    result = json.loads(
+        await inv.inspect_target(
+            "1.2", 1, row_start=2, row_stop=4, column_start=3, column_stop=5
+        )
+    )
+    assert result["value"]["shape"] == [2, 2]
+    assert result["value"]["values"] == [23, 24, 33, 34]
+    assert result["selection"] == {"rows": [2, 4], "columns": [3, 5]}
+    with pytest.raises(ValueError, match="nonnegative"):
+        await inv.inspect_target("1.2", 1, row_start=-1)
+    monkeypatch.setattr(tools_module, "decode_targets", lambda *args: [np.arange(10)])
+    with pytest.raises(ValueError, match="two-dimensional"):
+        await inv.inspect_target("1.2", 1, row_start=0)
+
+
+@pytest.mark.asyncio
+async def test_target_metadata_only_supports_nested_matrices(monkeypatch):
+    import scicode_scanners.failure_classification.tools as tools_module
+
+    matrix = np.zeros((1000, 2000))
+    monkeypatch.setattr(
+        tools_module, "decode_targets", lambda *args: [{"matrix": matrix}]
+    )
+    inv = Investigation(fixture_cases(), "1.2", "fixture.h5")
+    result = json.loads(
+        await inv.inspect_target("1.2", 1, path=["matrix"], metadata_only=True)
+    )
+    assert result["metadata"] == {
+        "type": "ndarray",
+        "shape": [1000, 2000],
+        "dtype": "float64",
+    }
+    assert "value" not in result
+    with pytest.raises(ValueError, match="without matrix slice bounds"):
+        await inv.inspect_target("1.2", 1, metadata_only=True, row_start=0)

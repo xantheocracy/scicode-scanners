@@ -8,7 +8,7 @@ transcripts:
     - eval_set_id: scicode-verified-default--tu1flh8tik8bh6l2
 
 scanners:
-  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@failure-classification-scanner"
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@2a94d10d526eb4a396c7b1fe10f167355669d580"
     name: scicode_scanners
     items:
       - name: failure_classification

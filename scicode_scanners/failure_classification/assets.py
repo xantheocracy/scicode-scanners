@@ -142,3 +142,19 @@ def typed(value: Any, offset: int = 0, limit: int = 64) -> Any:
     if isinstance(value, bytes):
         return {"type": "bytes", "hex": value.hex()}
     return value
+
+
+def target_metadata(value: Any) -> Any:
+    """Describe targets without copying potentially large values into context."""
+    if sparse.issparse(value) or isinstance(value, np.ndarray):
+        result = {
+            "type": type(value).__name__,
+            "shape": list(value.shape),
+            "dtype": str(value.dtype),
+        }
+        if sparse.issparse(value):
+            result["nnz"] = value.nnz
+        return result
+    if isinstance(value, (tuple, list, dict)):
+        return {"type": type(value).__name__, "size": len(value)}
+    return {"type": type(value).__name__}

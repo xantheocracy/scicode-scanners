@@ -6,7 +6,7 @@ from typing import Any
 from inspect_ai.tool import ToolDef
 
 from .adapters import CaseSet, redact
-from .assets import ROOT, decode_targets, typed
+from .assets import decode_targets, target_metadata, typed
 
 PAGE_CHARS = 12000
 
@@ -45,8 +45,6 @@ class Investigation:
                 "retrieve_step",
                 "full_transcript",
                 "inspect_target",
-                "helper_source",
-                "prior_findings",
             )
         }
 
@@ -63,15 +61,7 @@ class Investigation:
         Args:
             char_offset: Character position within the selected JSON payload; follow next_char_offset.
         """
-        return evidence_page(self.packet, char_offset)
-
-    async def prior_findings(self, char_offset: int = 0) -> str:
-        """Retrieve earlier same-scan cause summaries to help reuse a defect key.
-
-        These are judge-generated hypotheses, not ground truth or historical audit findings.
-        Verify inherited causes using original evidence before attributing them here.
-        """
-        return evidence_page(self.previous_causes, char_offset)
+        return evidence_page({"case": self.packet}, char_offset)
 
     async def retrieve_step(self, step_id: str, char_offset: int = 0) -> str:
         """Retrieve a step's exact prompt, response including exposed reasoning, tests and original results.
@@ -141,6 +131,11 @@ class Investigation:
         offset: int = 0,
         limit: int = 64,
         char_offset: int = 0,
+        metadata_only: bool = False,
+        row_start: int | None = None,
+        row_stop: int | None = None,
+        column_start: int | None = None,
+        column_stop: int | None = None,
     ) -> str:
         """Inspect expected HDF5 output with typed previews and pagination, without changing it.
 
@@ -148,6 +143,11 @@ class Investigation:
             char_offset: Character position within the selected JSON payload; follow next_char_offset.
             step_id: Step whose expected output to inspect.
             test_index: One-based test index.
+            metadata_only: Return only type, shape/dtype or container size, without values.
+            row_start: Optional first matrix row (inclusive).
+            row_stop: Optional final matrix row (exclusive).
+            column_start: Optional first matrix column (inclusive).
+            column_stop: Optional final matrix column (exclusive).
             path: Nested dictionary keys or list/tuple indices, expressed as strings.
             offset: Start index of an array/list/dictionary preview.
             limit: Maximum preview entries, from 1 to 256.
@@ -167,33 +167,41 @@ class Investigation:
                 if isinstance(value, dict) and key in value
                 else value[int(key)]
             )
+        if metadata_only:
+            if any(
+                bound is not None
+                for bound in (row_start, row_stop, column_start, column_stop)
+            ):
+                raise ValueError("Use metadata_only without matrix slice bounds.")
+            return evidence_page(
+                {
+                    "reference": f"T:{step_id}:{test_index}:target",
+                    "metadata": target_metadata(value),
+                },
+                char_offset,
+            )
+        selection = None
+        bounds = (row_start, row_stop, column_start, column_stop)
+        if any(bound is not None for bound in bounds):
+            if getattr(value, "ndim", None) != 2:
+                raise ValueError("Matrix slicing requires a two-dimensional target.")
+            if any(bound is not None and bound < 0 for bound in bounds):
+                raise ValueError("Matrix slice bounds must be nonnegative.")
+            rows = slice(row_start, row_stop)
+            columns = slice(column_start, column_stop)
+            selection = {
+                "rows": [row_start, row_stop],
+                "columns": [column_start, column_stop],
+            }
+            value = value[rows, columns]
+            # A sparse slice is converted only after bounding the selected matrix.
+            if hasattr(value, "toarray") and value.shape[0] * value.shape[1] <= 256:
+                value = value.toarray()
         return evidence_page(
             {
                 "reference": f"T:{step_id}:{test_index}:target",
+                "selection": selection,
                 "value": typed(value, offset, limit),
             },
             char_offset,
         )
-
-    async def helper_source(self, name: str, char_offset: int = 0) -> str:
-        """Read the exact target-decoding or comparator helper source used by this harness.
-
-        Args:
-            char_offset: Character position within the selected JSON payload; follow next_char_offset.
-            name: Either targets or comparator.
-        """
-        if name not in {"targets", "comparator"}:
-            raise ValueError("name must be targets or comparator.")
-        if self.cases.implementation == "scicode":
-            p = (
-                ROOT
-                / "vendor"
-                / ("process_data.py" if name == "targets" else "test_util.py")
-            )
-        else:
-            p = (
-                ROOT
-                / "vendor/verified/scicode"
-                / ("parse/parse.py" if name == "targets" else "compare/cmp.py")
-            )
-        return evidence_page({"name": name, "source": p.read_text()}, char_offset)

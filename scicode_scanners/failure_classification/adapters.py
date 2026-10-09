@@ -112,33 +112,33 @@ class CaseSet:
             )
 
     def packet(self, step_id: str) -> dict[str, Any]:
-        step = self.steps[step_id]
+        order = list(self.steps)
+
+        def solution(sid):
+            step = self.steps[sid]
+            return {
+                "step": sid,
+                "provided": step["provided"],
+                "description": step["record"]["step_description_prompt"],
+                "interface": {
+                    k: step["record"].get(k) for k in ("function_header", "return_line")
+                },
+                "submitted_code": step["code"],
+                "response_reference": step["response_ref"],
+            }
+
         return {
             "implementation": self.implementation,
             "affected_step": step_id,
-            "description": step["record"]["step_description_prompt"],
-            "interface": {
-                k: step["record"].get(k) for k in ("function_header", "return_line")
-            },
-            "current_prompt": step["current_prompt"],
-            "system_instructions": step["system"],
-            "response": step["response"],
-            "submitted_code": step["code"],
-            "tests": [
-                {"reference": f"T:{step_id}:{i + 1}", "source": test}
-                for i, test in enumerate(step["record"]["test_cases"])
+            "current_solution": solution(step_id),
+            "previous_solutions": [
+                solution(sid) for sid in order[: order.index(step_id)]
             ],
             "dependencies": self.problem["required_dependencies"],
-            "original_score": self.scores[step_id],
-            "original_grading": {
-                k: v
-                for k, v in (self.grading.get(step_id) or {}).items()
-                if k not in {"executed_program", "explanation"}
-            },
-            "settings": self.settings,
-            "response_reference": step["response_ref"],
-            "reasoning_available": step["reasoning_available"],
-            "note": "Earlier context and exposed reasoning are available through retrieve_step/full_transcript tools. Expected targets describe the grader, not scientific truth.",
+            "tests": [
+                {"reference": f"T:{step_id}:{i + 1}", "source": test}
+                for i, test in enumerate(self.steps[step_id]["record"]["test_cases"])
+            ],
         }
 
     def grading_script(

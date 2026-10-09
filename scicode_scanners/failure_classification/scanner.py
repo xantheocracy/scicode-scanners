@@ -8,7 +8,7 @@ from inspect_ai.model import get_model
 from inspect_scout import Reference, Result, Scanner, Transcript, scanner
 
 from .adapters import REVISIONS, Implementation, load_cases
-from .assets import TARGETS, decode_targets, target_file, typed
+from .assets import TARGETS, decode_targets, target_file, target_metadata
 from .checkpoints import CheckpointStore, hawk_results_uri
 from .judge import investigate
 from .schema import Limits
@@ -35,7 +35,7 @@ def reconcile(assessment, implementation, transcript_id):
     return rows
 
 
-@scanner(messages="all", events="all", version=3)
+@scanner(messages="all", events="all", version=4)
 def failure_classification(
     implementation: Implementation,
     generated_token_budget: int = 8192,
@@ -79,7 +79,10 @@ def failure_classification(
         for sid in failed:
             packet = cases.packet(sid)
             packet["expected_targets"] = [
-                {"reference": f"T:{sid}:{i + 1}:target", "value": typed(value)}
+                {
+                    "reference": f"T:{sid}:{i + 1}:target",
+                    "metadata": target_metadata(value),
+                }
                 for i, value in enumerate(
                     decode_targets(
                         target,
@@ -112,7 +115,7 @@ def failure_classification(
             checkpoint = CheckpointStore(
                 checkpoint_uri or hawk_results_uri(),
                 {
-                    "scanner_version": 3,
+                    "scanner_version": 4,
                     "implementation": implementation,
                     "transcript": t.transcript_id,
                     "source_uri": t.source_uri,

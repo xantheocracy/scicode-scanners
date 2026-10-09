@@ -9,10 +9,10 @@ transcripts:
   filter:
     limit: 1
     where:
-      - transcript_id: aazXhZLeLoXNgA6SuYqW2e
+      - transcript_id: BQqvcbeZrr2FACZLszQqsh
 
 scanners:
-  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@failure-classification-scanner"
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@2a94d10d526eb4a396c7b1fe10f167355669d580"
     name: scicode_scanners
     items:
       - name: failure_classification
@@ -21,7 +21,7 @@ scanners:
           generated_token_budget: 8192
           finalization_reserve: 1536
           reasoning_effort: high
-          dry_run: true
+          dry_run: false
 
 models:
   - package: openai
