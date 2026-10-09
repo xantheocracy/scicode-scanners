@@ -1,0 +1,43 @@
+# Reproduce the sandbox provisioning check from scicode-verified-sandbox--ibmuswf07u8b8v4q.
+# Run with: hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-sandbox-smoke.yaml
+# Uses the historical sandbox-enabled scanner; smoke_only makes no model calls.
+# Requires Hawk access to the source eval and scan-runner permissions for Kubernetes sandboxes.
+name: scicode-verified-sandbox-permission-smoke
+
+packages:
+  - inspect-scout==0.5.2
+  - inspect-k8s-sandbox @ git+https://github.com/METR/inspect_k8s_sandbox.git@d07147e9395936ae45cb97bb4b9a907d95e9855d
+
+transcripts:
+  sources:
+    - eval_set_id: scicode-verified-default--tu1flh8tik8bh6l2
+  filter:
+    limit: 1
+    where:
+      - transcript_id: BQqvcbeZrr2FACZLszQqsh
+
+scanners:
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@7fe7fc4ba90043095ac81265c1f5c76fcb22ae14"
+    name: scicode_scanners
+    items:
+      - name: failure_classification
+        args:
+          implementation: scicode_verified
+          generated_token_budget: 8192
+          finalization_reserve: 1536
+          reasoning_effort: high
+          smoke_only: true
+
+models:
+  - package: openai
+    name: openrouter
+    items:
+      - name: openrouter/z-ai/glm-5.3
+        args:
+          config:
+            max_retries: 0
+            extra_body:
+              reasoning:
+                effort: high
+
+max_transcripts: 1
