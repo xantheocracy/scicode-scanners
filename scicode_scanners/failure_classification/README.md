@@ -48,22 +48,14 @@ Run these from the repository root after publishing the scanner package. The pac
 hawk scan run scicode_scanners/failure_classification/hawk-scicode-smoke.yaml
 hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-smoke.yaml
 
-hawk scan run scicode_scanners/failure_classification/hawk-scicode-pilot.yaml
-hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-pilot.yaml
+hawk scan run scicode_scanners/failure_classification/hawk-scicode-full.yaml
+hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-full.yaml
 ```
 
-Smoke configurations select a known failed transcript and run classification with the same budgets as full runs. Set `dry_run: true` to check extraction and HDF5 artifacts without inference. Pilot configurations select two shuffled main-problem transcripts each; each main problem may contain several failed steps. They launch paid GLM-5.3 inference. Review these before using the corresponding `-full.yaml` configurations.
+Smoke configurations select a known failed transcript and run classification with the same budgets as full runs. Set `dry_run: true` to check extraction and HDF5 artifacts without inference. Full configurations scan all transcripts in the corresponding eval set without a transcript cap. Both smoke and full runs use paid GLM-5.3 inference; review the smoke results before a full run.
 
 Native Hawk scan jobs can run this scanner without sandbox permissions. Source logs are read from their Hawk URI with full attachments resolved. Target files are downloaded with pinned checksums and decoded with the exact source harness helpers. Custom target files must match the expected full-file checksum.
 
-Opus 5.5-only configurations use an exact source-model filter and pin the scanner package to an implementation commit:
-
-```bash
-hawk scan run scicode_scanners/failure_classification/hawk-scicode-opus55.yaml
-hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-opus55.yaml
-```
-
-These select 65 SciCode transcripts (106 failed scored steps) and 64 Verified transcripts (48 failed scored steps). The source model is Opus 5.5; the classification judge remains GLM-5.3. All-passing transcripts make no judge calls. These configurations use the same inspection-only scanner.
 
 ## Budget and resume
 
@@ -95,13 +87,13 @@ python -m pytest -q
 
 Tests cover extraction differences, retry handling, reference-field removal, cumulative code, origin validation, deduplication, both HDF5 decoders, token accounting and budget awareness, finalization, checkpoints, read-only tool restrictions, and both harnesses through the full scanner path. These tests use fixtures and mocked model calls; they do not run evaluations locally.
 
-Extraction was also checked against all eight source logs: 260 SciCode transcripts (573 failed steps) and 256 Verified transcripts (195 failed steps). Reconstructed SciCode grading matched all 1,119 recorded programs. All 183 distinct failed SciCode target groups and 101 Verified groups decoded successfully. The eight configurations validate against Hawk 3.6.0. Semantic classification quality requires reviewing the Hawk pilot.
+Extraction was also checked against all eight source logs: 260 SciCode transcripts (573 failed steps) and 256 Verified transcripts (195 failed steps). Reconstructed SciCode grading matched all 1,119 recorded programs. All 183 distinct failed SciCode target groups and 101 Verified groups decoded successfully. Semantic classification quality requires reviewing smoke results before a full run.
 
 The detailed design is in [PLAN.md](PLAN.md); vendored helper provenance is in [vendor/README.md](vendor/README.md).
 
 ### Generation budgets
 
-Smoke, pilot, and full configurations use 32,768 generated tokens per failed
+Smoke and full configurations use 32,768 generated tokens per failed
 subproblem, including reasoning, with 8,192 tokens protected for finalization.
 Investigation calls are capped at 4,096 tokens and 12 retrieval calls. Finalization
 disables retrieval, requires the answer tool, lowers reasoning effort to `low`,

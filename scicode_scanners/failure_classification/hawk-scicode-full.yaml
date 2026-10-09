@@ -8,7 +8,7 @@ transcripts:
     - eval_set_id: scicode-default-max-6nsnsp7trfmhbofk
 
 scanners:
-  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@2a94d10d526eb4a396c7b1fe10f167355669d580"
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@8bdb356cf1726f787017fe1d8b3963f3af6e0a30"
     name: scicode_scanners
     items:
       - name: failure_classification
@@ -31,5 +31,3 @@ models:
             extra_body:
               reasoning:
                 effort: high
-
-max_transcripts: 1
