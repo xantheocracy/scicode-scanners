@@ -47,10 +47,10 @@ class Assessment(BaseModel):
 
 
 class Limits(BaseModel):
-    generated_token_budget: int = Field(default=8192, ge=2048)
-    finalization_reserve: int = Field(default=1536, ge=512)
+    generated_token_budget: int = Field(default=32768, ge=2048)
+    finalization_reserve: int = Field(default=8192, ge=512)
     per_call_tokens: int = Field(default=4096, ge=512)
-    tool_rounds: int = Field(default=6, ge=1)
+    tool_rounds: int = Field(default=12, ge=1)
     reasoning_effort: Literal["low", "high", "max"] = "high"
 
     @model_validator(mode="after")

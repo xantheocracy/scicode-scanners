@@ -35,13 +35,13 @@ def reconcile(assessment, implementation, transcript_id):
     return rows
 
 
-@scanner(messages="all", events="all", version=4)
+@scanner(messages="all", events="all", version=5)
 def failure_classification(
     implementation: Implementation,
-    generated_token_budget: int = 8192,
-    finalization_reserve: int = 1536,
+    generated_token_budget: int = 32768,
+    finalization_reserve: int = 8192,
     per_call_tokens: int = 4096,
-    tool_rounds: int = 6,
+    tool_rounds: int = 12,
     reasoning_effort: str = "high",
     targets_path: str | None = None,
     checkpoint_uri: str | None = None,
@@ -115,7 +115,7 @@ def failure_classification(
             checkpoint = CheckpointStore(
                 checkpoint_uri or hawk_results_uri(),
                 {
-                    "scanner_version": 4,
+                    "scanner_version": 5,
                     "implementation": implementation,
                     "transcript": t.transcript_id,
                     "source_uri": t.source_uri,

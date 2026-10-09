@@ -14,8 +14,10 @@ scanners:
   - name: failure_classification
     args:
       implementation: scicode_verified
-      generated_token_budget: 8192
-      finalization_reserve: 1536
+      generated_token_budget: 32768
+      finalization_reserve: 8192
+      per_call_tokens: 4096
+      tool_rounds: 12
       reasoning_effort: high
 models:
 - package: openai

@@ -229,8 +229,10 @@ class MockModel:
     def __init__(self, outputs):
         self.outputs = list(outputs)
         self.requests = []
+        self.tool_choices = []
 
-    async def generate(self, history, tools, config):
+    async def generate(self, history, tools, config, tool_choice=None):
+        self.tool_choices.append(tool_choice)
         self.requests.append((list(history), tools, config))
         return self.outputs.pop(0)
 
@@ -272,8 +274,8 @@ async def test_budget_counts_reasoning_once_and_informs_judge():
     assert config.extra_body["reasoning"]["effort"] == "high"
     update = json.loads(request[-1].text)["budget_update"]
     assert (
-        update["remaining_generated_tokens"] == 8192
-        and update["finalization_reserve"] == 1536
+        update["remaining_generated_tokens"] == 32768
+        and update["finalization_reserve"] == 8192
     )
 
 
@@ -308,7 +310,7 @@ async def test_finalization_disables_tools_and_respects_remaining_budget():
     _, provenance = await investigate(model, inv, c.packet("1.2"), limits)
     assert provenance["generated_tokens"] == 1600
     _, tools, config = model.requests[1]
-    assert [d.name for d in tools] == ["answer"] and config.max_tokens == 1024
+    assert [d.name for d in tools] == ["answer"] and config.max_tokens == 1048
 
 
 @pytest.mark.asyncio
@@ -318,7 +320,7 @@ async def test_checkpoint_reserves_charge_before_request_and_reuses_answer(tmp_p
     inv = Investigation(c, "1.2", None)
 
     class CheckedModel(MockModel):
-        async def generate(self, history, tools, config):
+        async def generate(self, history, tools, config, tool_choice=None):
             saved = await store.read()
             assert saved["used"] == config.max_tokens
             return await super().generate(history, tools, config)
@@ -388,7 +390,7 @@ async def test_empty_provider_responses_cannot_create_unbounded_input_spend():
     model = MockModel([empty] * (limits.tool_rounds + 4))
     a, provenance = await investigate(model, inv, c.packet("1.2"), limits)
     assert a.status == "unresolved" and provenance["termination"] == "model_call_limit"
-    assert len(model.requests) == 10
+    assert len(model.requests) == 16
 
 
 @pytest.mark.asyncio
@@ -634,3 +636,41 @@ async def test_target_metadata_only_supports_nested_matrices(monkeypatch):
     assert "value" not in result
     with pytest.raises(ValueError, match="without matrix slice bounds"):
         await inv.inspect_target("1.2", 1, metadata_only=True, row_start=0)
+
+
+@pytest.mark.asyncio
+async def test_production_budget_preserves_full_answer_reserve():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    limits = Limits()
+    model = MockModel(
+        [
+            *[
+                output(
+                    ToolCall(
+                        id=f"read-{i}",
+                        function="retrieve_step",
+                        arguments={"step_id": "missing"},
+                    ),
+                    4096,
+                )
+                for i in range(6)
+            ],
+            output(
+                ToolCall(
+                    id="final",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                7000,
+            ),
+        ]
+    )
+    result, provenance = await investigate(model, inv, c.packet("1.2"), limits)
+    assert result.status == "resolved"
+    assert provenance["generated_tokens"] == 6 * 4096 + 7000
+    _, tools, config = model.requests[-1]
+    assert [tool.name for tool in tools] == ["answer"]
+    assert config.max_tokens == 8192
+    assert config.extra_body["reasoning"]["effort"] == "low"
+    assert model.tool_choices[-1] == "any"

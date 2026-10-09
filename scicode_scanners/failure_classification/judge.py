@@ -84,10 +84,15 @@ async def investigate(
         remaining = limits.generated_token_budget - used
         investigation_remaining = max(0, remaining - limits.finalization_reserve)
         finalizing = (
-            finalizing or rounds >= limits.tool_rounds or investigation_remaining < 512
+            finalizing
+            or rounds >= limits.tool_rounds
+            or len(calls) >= limits.tool_rounds
+            or investigation_remaining < 512
         )
-        cap = min(
-            limits.per_call_tokens, remaining if finalizing else investigation_remaining
+        cap = (
+            remaining
+            if finalizing
+            else min(limits.per_call_tokens, investigation_remaining)
         )
         if cap < 1:
             break
@@ -131,11 +136,16 @@ async def investigate(
         output = await model.generate(
             history,
             tools=definitions,
+            tool_choice="any" if finalizing else "auto",
             config=GenerateConfig(
                 max_tokens=cap,
                 max_retries=0,
                 parallel_tool_calls=False,
-                extra_body={"reasoning": {"effort": limits.reasoning_effort}},
+                extra_body={
+                    "reasoning": {
+                        "effort": "low" if finalizing else limits.reasoning_effort
+                    }
+                },
             ),
         )
         # Inspect/OpenAI output_tokens includes reasoning; do not add reasoning_tokens twice.

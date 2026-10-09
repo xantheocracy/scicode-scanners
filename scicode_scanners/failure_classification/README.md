@@ -16,7 +16,7 @@ The initial packet contains the current submitted solution, all preceding soluti
 
 The tools are `current_evidence` (packet pagination), `retrieve_step` (exact step evidence and model messages), `full_transcript` (event reading and literal search), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), and the structured `answer` tool. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
 
-Scanner version 4 changes the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
+Scanner version 5 adds enforced answer-tool finalization and a larger protected answer budget; version 4 changed the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
 
 Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Oversized initial evidence is paginated too, with the rest available through `current_evidence`. Omitted text is explicitly marked incomplete. A conservative 100,000-byte serialized-history ceiling stops investigation with an unresolved `input_context_limit` assessment before sending an oversized request.
 
@@ -52,7 +52,7 @@ hawk scan run scicode_scanners/failure_classification/hawk-scicode-pilot.yaml
 hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-pilot.yaml
 ```
 
-Smoke configurations select a known failed transcript and exercise extraction and HDF5 artifacts without inference. Pilot configurations select two shuffled main-problem transcripts each; each main problem may contain several failed steps. They launch paid GLM-5.3 inference. Review these before using the corresponding `-full.yaml` configurations.
+Smoke configurations select a known failed transcript and run classification with the same budgets as full runs. Set `dry_run: true` to check extraction and HDF5 artifacts without inference. Pilot configurations select two shuffled main-problem transcripts each; each main problem may contain several failed steps. They launch paid GLM-5.3 inference. Review these before using the corresponding `-full.yaml` configurations.
 
 Native Hawk scan jobs can run this scanner without sandbox permissions. Source logs are read from their Hawk URI with full attachments resolved. Target files are downloaded with pinned checksums and decoded with the exact source harness helpers. Custom target files must match the expected full-file checksum.
 
@@ -98,3 +98,17 @@ Tests cover extraction differences, retry handling, reference-field removal, cum
 Extraction was also checked against all eight source logs: 260 SciCode transcripts (573 failed steps) and 256 Verified transcripts (195 failed steps). Reconstructed SciCode grading matched all 1,119 recorded programs. All 183 distinct failed SciCode target groups and 101 Verified groups decoded successfully. The eight configurations validate against Hawk 3.6.0. Semantic classification quality requires reviewing the Hawk pilot.
 
 The detailed design is in [PLAN.md](PLAN.md); vendored helper provenance is in [vendor/README.md](vendor/README.md).
+
+### Generation budgets
+
+Smoke, pilot, and full configurations use 32,768 generated tokens per failed
+subproblem, including reasoning, with 8,192 tokens protected for finalization.
+Investigation calls are capped at 4,096 tokens and 12 retrieval calls. Finalization
+disables retrieval, requires the answer tool, lowers reasoning effort to `low`,
+and can use the entire remaining token budget rather than the investigation
+per-call cap. Four additional model calls are available for finalization and
+validation corrections, within the total token budget. Empty responses also
+count toward the model-call limit, which triggers finalization before exhaustion.
+
+Publish the implementation and update each YAML's scanner package commit before
+running it remotely; local budget edits alone do not update the remote code.
