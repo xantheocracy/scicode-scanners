@@ -4,7 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Category = Literal["underspecified", "wrongly_specified", "model_error", "other"]
+Category = Literal[
+    "underspecified", "wrongly_specified", "model_error", "operational_error", "other"
+]
 
 
 class Cause(BaseModel):

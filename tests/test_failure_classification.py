@@ -792,3 +792,41 @@ async def test_oversized_retrieval_is_withheld_and_answer_still_submitted():
         )
         < 100000
     )
+
+
+@pytest.mark.asyncio
+async def test_operational_error_submission_uses_recorded_generation_limit():
+    c = fixture_cases()
+    c.steps["1.2"]["stop_reason"] = "max_tokens"
+    inv = Investigation(c, "1.2", None)
+    evidence = json.loads(await inv.retrieve_step("1.2"))
+    assert evidence["generation"] == {
+        "event_reference": "E:e-1.2",
+        "stop_reason": "max_tokens",
+    }
+    assert "code" not in evidence
+    a = assessment()
+    cause = a.causes[0]
+    cause.category = "operational_error"
+    cause.origin_type = "current"
+    cause.origin_steps = ["1.2"]
+    cause.dependency_path = ["1.2"]
+    cause.mechanism = "Recorded generation cutoff left submitted code incomplete."
+    cause.evidence = ["E:e-1.2 recorded max_tokens stop"]
+    cause.defect_key = "submission truncated by generation limit"
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="answer",
+                    function="answer",
+                    arguments={"assessment": a.model_dump()},
+                ),
+                500,
+            )
+        ]
+    )
+    result, provenance = await investigate(model, inv, c.packet("1.2"), Limits())
+    assert result.causes[0].category == "operational_error"
+    assert provenance["termination"] == "answered"
+    assert "operational_error" in model.requests[0][0][0].text

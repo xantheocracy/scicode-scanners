@@ -4,7 +4,7 @@ Ask “why did this subproblem fail?” for the default SciCode and SciCode-Veri
 
 ## Categories and output
 
-`underspecified` means the submitted behavior follows a valid interpretation of the prompt but the test imposes an unstated requirement. `wrongly_specified` means an explicit prompt requirement conflicts with the test. `model_error` means a model mistake causally contributes. `other` describes an established cause outside those definitions.
+`underspecified` means the submitted behavior follows a valid interpretation of the prompt but the test imposes an unstated requirement. `wrongly_specified` means an explicit prompt requirement conflicts with the test. `model_error` means a model mistake causally contributes. `operational_error` means an evidenced operational interruption or transient source-eval failure, such as a generation limit truncating the submission or a provider/tool/infrastructure error preventing execution. A syntax error or timeout alone is insufficient: ordinary coding mistakes and inefficient algorithms remain `model_error`. The scanner exhausting its own budget remains an unresolved assessment with a limitation. `other` describes an established cause outside those definitions.
 
 The result `value` is a list of unique supported categories. `answer` is `resolved`, `partially_resolved`, or `unresolved`. Full assessments live in `metadata.assessment`; the source identity is in `metadata.source`, and judge calls, token usage, read-only evidence retrievals are in `metadata.investigation`. Unresolved assessments have an empty category list. All-passing transcripts return an accounting result without a judge call.
 
@@ -113,3 +113,8 @@ message references only. `read_message` selects one original message;
 Reasoning can be requested separately without loading response text. Exact raw
 prompts and responses remain available explicitly for investigating harness
 behavior; these may duplicate code already present in the initial packet.
+
+Scanner version 7 adds `operational_error`. Grading retrieval includes the source
+generation stop reason, event reference, and usage when available, without
+loading code or reasoning. Existing classifications are not relabeled; reprocess
+with the updated scanner to apply this category.

@@ -110,6 +110,14 @@ class Investigation:
         evidence = {"step": step_id, "response_reference": step["response_ref"]}
         if section == "grading":
             evidence["score"] = self.cases.scores.get(step_id)
+            if event:
+                evidence["generation"] = {
+                    "event_reference": f"E:{event.uuid}",
+                    "stop_reason": step.get("stop_reason"),
+                }
+                usage = getattr(event.output, "usage", None)
+                if usage is not None:
+                    evidence["generation"]["usage"] = usage.model_dump(mode="json")
             evidence["original_grading"] = {
                 k: v
                 for k, v in (self.cases.grading.get(step_id) or {}).items()
