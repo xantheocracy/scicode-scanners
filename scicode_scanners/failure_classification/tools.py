@@ -1,7 +1,7 @@
 """On-demand, read-only evidence retrieval for inspection-only classification."""
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from inspect_ai.tool import ToolDef
 
@@ -44,6 +44,7 @@ class Investigation:
                 "current_evidence",
                 "retrieve_step",
                 "full_transcript",
+                "read_message",
                 "inspect_target",
             )
         }
@@ -63,56 +64,170 @@ class Investigation:
         """
         return evidence_page({"case": self.packet}, char_offset)
 
-    async def retrieve_step(self, step_id: str, char_offset: int = 0) -> str:
-        """Retrieve a step's exact prompt, response including exposed reasoning, tests and original results.
+    def message_index(self):
+        messages = {}
+        for event in self.cases.events:
+            if getattr(event, "event", None) == "model":
+                for message in [
+                    *event.input,
+                    *[c.message for c in event.output.choices],
+                ]:
+                    if message.id:
+                        messages[message.id] = message
+        return messages
+
+    @staticmethod
+    def reasoning(message):
+        return (
+            [
+                block.model_dump(mode="json")
+                for block in message.content
+                if getattr(block, "type", None) == "reasoning"
+            ]
+            if isinstance(message.content, list)
+            else []
+        )
+
+    async def retrieve_step(
+        self,
+        step_id: str,
+        char_offset: int = 0,
+        section: Literal[
+            "grading", "reasoning", "tests", "prompt", "response"
+        ] = "grading",
+    ) -> str:
+        """Read a selected step section; default grading excludes solutions and model inputs.
 
         Args:
-            char_offset: Character position within the selected JSON payload; follow next_char_offset.
-            step_id: Subproblem identifier, e.g. 13.2. Passing and supplied steps are available too.
+            step_id: Subproblem identifier. Current and previous solutions are in current_evidence.
+            char_offset: Character offset for pagination; follow next_char_offset.
+            section: grading for recorded observations, reasoning for exposed reasoning only,
+                tests for test source, prompt for exact model inputs, or response for raw output.
+                Prompt and response explicitly reload code; request only when necessary.
         """
-        s = self.cases.steps[step_id]
-        event = s.get("event")
-        evidence = {
-            "step": step_id,
-            "provided": s["provided"],
-            "description": s["record"],
-            "code": s["code"],
-            "score": self.cases.scores.get(step_id),
-            "original_grading": self.cases.grading.get(step_id),
-            "response_ref": s["response_ref"],
-        }
-        if event:
+        step = self.cases.steps[step_id]
+        event = step.get("event")
+        evidence = {"step": step_id, "response_reference": step["response_ref"]}
+        if section == "grading":
+            evidence["score"] = self.cases.scores.get(step_id)
+            evidence["original_grading"] = {
+                k: v
+                for k, v in (self.cases.grading.get(step_id) or {}).items()
+                if k != "executed_program"
+            }
+        elif section == "tests":
+            evidence["tests"] = [
+                {"reference": f"T:{step_id}:{i + 1}", "source": test}
+                for i, test in enumerate(step["record"]["test_cases"])
+            ]
+        elif section == "reasoning":
+            evidence["reasoning"] = (
+                self.reasoning(event.output.choices[0].message) if event else []
+            )
+            evidence["note"] = (
+                "Only exposed reasoning is returned; an empty list means unavailable."
+            )
+        elif section in {"prompt", "response"}:
+            messages = (
+                event.input
+                if section == "prompt" and event
+                else ([event.output.choices[0].message] if event else [])
+            )
             evidence["messages"] = [
                 {"reference": f"M:{m.id}", **m.model_dump(mode="json")}
-                for m in [*event.input, event.output.choices[0].message]
+                for m in messages
             ]
         else:
-            evidence["reasoning"] = "Unavailable: this is author-provided code."
+            raise ValueError("Unknown step section.")
         return evidence_page(evidence, char_offset)
+
+    async def read_message(
+        self,
+        message_id: str,
+        section: Literal["text", "reasoning"] = "text",
+        char_offset: int = 0,
+    ) -> str:
+        """Read one selected original message, rather than an entire model-event input.
+
+        Args:
+            message_id: Message ID from full_transcript, optionally prefixed with M:.
+            section: text for original text (may reload code), reasoning for exposed reasoning only.
+            char_offset: Character offset for pagination; follow next_char_offset.
+        """
+        message_id = message_id.removeprefix("M:")
+        message = self.message_index()[message_id]
+        if section not in {"text", "reasoning"}:
+            raise ValueError("Unknown message section.")
+        return evidence_page(
+            {
+                "reference": f"M:{message_id}",
+                "role": message.role,
+                section: message.text if section == "text" else self.reasoning(message),
+            },
+            char_offset,
+        )
 
     async def full_transcript(
         self, offset: int = 0, limit: int = 4, query: str = "", char_offset: int = 0
     ) -> str:
-        """Read/search all transcript events, including previous steps, reasoning and grader events.
+        """List/search transcript events without reloading model prompts or submitted code.
 
         Args:
-            char_offset: Character position within the selected JSON payload; follow next_char_offset.
+            char_offset: Character offset for pagination; follow next_char_offset.
             offset: Zero-based offset into events matching the optional query.
             limit: Number of events, at most 10. Continue using next_offset.
-            query: Optional literal case-insensitive search string.
+            query: Literal case-insensitive search in original events. Matches return summaries;
+                use read_message or retrieve_step to read selected evidence.
         """
         if offset < 0 or not 1 <= limit <= 10:
             raise ValueError("Use offset >= 0 and 1 <= limit <= 10.")
-        events = [
-            {"reference": f"E:{e.uuid}", **redact(e.model_dump(mode="json"))}
-            for e in self.cases.events
-        ]
-        if query:
-            events = [
-                e
-                for e in events
-                if query.casefold() in json.dumps(e, ensure_ascii=False).casefold()
-            ]
+        events = []
+        for event in self.cases.events:
+            raw = redact(event.model_dump(mode="json"))
+            if (
+                query
+                and query.casefold()
+                not in json.dumps(raw, ensure_ascii=False).casefold()
+            ):
+                continue
+            reference = f"E:{event.uuid}"
+            if getattr(event, "event", None) == "model":
+                messages = [*event.input, *[c.message for c in event.output.choices]]
+                summary = {
+                    "reference": reference,
+                    "event": "model",
+                    "steps": [
+                        sid
+                        for sid, step in self.cases.steps.items()
+                        if step.get("event") is event
+                    ],
+                    "messages": [
+                        {
+                            "reference": f"M:{m.id}",
+                            "role": m.role,
+                            "reasoning_available": bool(self.reasoning(m)),
+                        }
+                        for m in messages
+                    ],
+                    "note": "Message contents omitted; use read_message for selected content.",
+                }
+            else:
+                # Sandbox programs and score answers repeat the cumulative submitted code.
+                summary = {
+                    "reference": reference,
+                    **{
+                        k: v
+                        for k, v in raw.items()
+                        if k not in {"cmd", "answer", "input", "output"}
+                    },
+                }
+                if "output" in raw:
+                    summary["output"] = raw["output"]
+                if isinstance(summary.get("score"), dict):
+                    summary["score"] = {
+                        k: v for k, v in summary["score"].items() if k != "answer"
+                    }
+            events.append(summary)
         end = min(offset + limit, len(events))
         return evidence_page(
             {

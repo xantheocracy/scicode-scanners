@@ -466,6 +466,7 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
             "current_evidence",
             "retrieve_step",
             "full_transcript",
+            "read_message",
             "inspect_target",
         }
         assert "Never claim to have executed code" in history[0].text
@@ -508,12 +509,12 @@ async def test_large_step_and_transcript_retrieval_are_paginated():
     c.events = [
         SimpleNamespace(
             uuid="large",
-            model_dump=lambda **kwargs: {"event": "model", "content": huge},
+            model_dump=lambda **kwargs: {"event": "sandbox", "output": huge},
         )
     ]
     inv = Investigation(c, "1.2", None)
     for tool, args in (
-        (inv.retrieve_step, {"step_id": "1.1"}),
+        (inv.retrieve_step, {"step_id": "1.1", "section": "prompt"}),
         (inv.full_transcript, {}),
     ):
         page = json.loads(await tool(**args))
@@ -674,3 +675,120 @@ async def test_production_budget_preserves_full_answer_reserve():
     assert config.max_tokens == 8192
     assert config.extra_body["reasoning"]["effort"] == "low"
     assert model.tool_choices[-1] == "any"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
+async def test_selective_retrieval_does_not_duplicate_solutions(verified):
+    c = fixture_cases(verified)
+    for event in c.events:
+        event.model_dump = lambda **kwargs: {
+            "event": "model",
+            "input": "DUPLICATED_PREVIOUS_CODE",
+            "output": "DUPLICATED_RESPONSE",
+        }
+    c.grading["1.2"] = {
+        "output": "AssertionError",
+        "executed_program": "DUPLICATED_PROGRAM",
+    }
+    inv = Investigation(c, "1.2", None)
+    default = await inv.retrieve_step("1.2")
+    assert "AssertionError" in default
+    assert "DUPLICATED" not in default and "def g" not in default
+    transcript = json.loads(await inv.full_transcript(query="DUPLICATED"))
+    assert transcript["total"] == 2
+    assert "DUPLICATED" not in json.dumps(transcript)
+    assert "def f" not in json.dumps(transcript)
+    assert transcript["events"][0]["messages"][-1]["reference"] == "M:m-1.1"
+    selected = json.loads(await inv.read_message("M:m-1.1"))
+    assert "def f" in selected["text"]
+    assert "def g" not in selected["text"]
+    assert "messages" not in json.loads(
+        await inv.retrieve_step("1.1", section="reasoning")
+    )
+    assert "messages" in json.loads(await inv.retrieve_step("1.1", section="prompt"))
+
+
+@pytest.mark.asyncio
+async def test_context_pressure_triggers_answer_before_hard_limit():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    large = ModelOutput.from_message(ChatMessageAssistant(content="x" * 75000))
+    large.usage = ModelUsage(input_tokens=10, output_tokens=100, total_tokens=110)
+    model = MockModel(
+        [
+            large,
+            output(
+                ToolCall(
+                    id="final",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                500,
+            ),
+        ]
+    )
+    result, provenance = await investigate(model, inv, c.packet("1.2"), Limits())
+    assert result.status == "resolved"
+    assert provenance["termination"] == "answered"
+    assert [tool.name for tool in model.requests[-1][1]] == ["answer"]
+    assert model.tool_choices[-1] == "any"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_retrieval_excludes_response_code():
+    from inspect_ai.model import ContentReasoning, ContentText
+
+    c = fixture_cases(True)
+    c.steps["1.1"]["event"].output.choices[0].message.content = [
+        ContentReasoning(reasoning="A specific reasoning observation."),
+        ContentText(text="DUPLICATE_SOLUTION_CODE"),
+    ]
+    inv = Investigation(c, "1.2", None)
+    for result in (
+        await inv.retrieve_step("1.1", section="reasoning"),
+        await inv.read_message("m-1.1", section="reasoning"),
+    ):
+        assert "A specific reasoning observation." in result
+        assert "DUPLICATE_SOLUTION_CODE" not in result
+
+
+@pytest.mark.asyncio
+async def test_oversized_retrieval_is_withheld_and_answer_still_submitted():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+
+    async def oversized(**kwargs):
+        return "x" * 90000
+
+    inv.functions["retrieve_step"] = oversized
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="read", function="retrieve_step", arguments={"step_id": "1.1"}
+                ),
+                100,
+            ),
+            output(
+                ToolCall(
+                    id="final",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                500,
+            ),
+        ]
+    )
+    result, provenance = await investigate(model, inv, c.packet("1.2"), Limits())
+    assert result.status == "resolved"
+    assert "Evidence withheld" in provenance["tools"][0]["result"]
+    assert model.tool_choices[-1] == "any"
+    assert (
+        len(
+            json.dumps(
+                [m.model_dump(mode="json") for m in model.requests[-1][0]]
+            ).encode()
+        )
+        < 100000
+    )

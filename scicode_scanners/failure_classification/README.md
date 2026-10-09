@@ -14,11 +14,11 @@ Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence an
 
 The initial packet contains the current submitted solution, all preceding solutions (including author-provided code), their subproblem descriptions and interfaces, dependency imports, and the current tests. HDF5 targets are represented only by type, shape/dtype for arrays and sparse matrices, or container size; values are retrieved on demand. The packet excludes raw responses, generation prompts, system instructions, grading output, and run settings.
 
-The tools are `current_evidence` (packet pagination), `retrieve_step` (exact step evidence and model messages), `full_transcript` (event reading and literal search), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), and the structured `answer` tool. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
+The tools are `current_evidence` (packet pagination), `retrieve_step` (selected grading, reasoning, tests, or explicit raw prompt/response), `full_transcript` (event summaries and literal search), `read_message` (one selected message or its reasoning), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), and the structured `answer` tool. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
 
-Scanner version 5 adds enforced answer-tool finalization and a larger protected answer budget; version 4 changed the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
+Scanner version 6 removes default transcript code duplication and finalizes under context pressure; version 5 added enforced answer-tool finalization and a larger protected answer budget; version 4 changed the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
 
-Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Oversized initial evidence is paginated too, with the rest available through `current_evidence`. Omitted text is explicitly marked incomplete. A conservative 100,000-byte serialized-history ceiling stops investigation with an unresolved `input_context_limit` assessment before sending an oversized request.
+Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Oversized initial evidence is paginated too, with the rest available through `current_evidence`. Omitted text is explicitly marked incomplete. Context pressure at 75,000 serialized-history bytes triggers answer-only finalization. Retrieved evidence that would push history beyond 85,000 bytes is withheld with an explicit missing-evidence notice, preserving space for submission. A 100,000-byte hard ceiling remains for exceptional oversized model responses.
 
 No reference solutions or audit findings are exposed. Reference-code fields present in source metadata are removed recursively. Author-provided steps are available because they were visible to the evaluated model. HDF5 targets are the grader's expectations, not a guarantee of scientific correctness.
 
@@ -104,3 +104,12 @@ count toward the model-call limit, which triggers finalization before exhaustion
 
 Publish the implementation and update each YAML's scanner package commit before
 running it remotely; local budget edits alone do not update the remote code.
+
+Transcript retrieval does not reload model-event inputs by default. This matters
+for SciCode's conversation history and Verified's prompts containing preceding
+solutions. `full_transcript` searches the original events but returns model-event
+message references only. `read_message` selects one original message;
+`retrieve_step` defaults to grading observations without executed programs.
+Reasoning can be requested separately without loading response text. Exact raw
+prompts and responses remain available explicitly for investigating harness
+behavior; these may duplicate code already present in the initial packet.

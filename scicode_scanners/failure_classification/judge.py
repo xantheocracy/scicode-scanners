@@ -26,7 +26,7 @@ HDF5 outputs describe the grader; they are not proof of scientific correctness. 
 Use unresolved when evidence is insufficient, not other. Use partially_resolved when some causes are established but uncertainty remains.
 Trace origins: current step, preceding step(s), author-provided code, external, or unknown. Earlier passing steps can contain defects exposed later. Inherited defects retain their originating category. Do not attribute causality just because a previous step failed.
 Evidence tools return at most 12,000 characters. If a response has next_char_offset, it is an incomplete JSON-text excerpt; repeat the same tool arguments with that char_offset to continue. Use current_evidence to retrieve omitted initial evidence. Never treat omitted evidence as absent.
-The packet includes current and preceding solutions, their requirements, tests, and target metadata. Use inspect_target to read expected values or matrix slices; values are not included initially. Retrieve exposed reasoning, original grading observations or full transcripts only when needed. Reasoning may be unavailable, which does not exclude the transcript.
+The packet includes current and preceding solutions, their requirements, tests, and target metadata. Use inspect_target to read expected values or matrix slices; values are not included initially. Use retrieve_step for selected grading observations or reasoning. full_transcript lists/searches event summaries without model inputs; read_message reads a single selected message. Raw prompt/response retrieval is explicit and can repeat code, especially in Verified prompts. Reasoning may be unavailable, which does not exclude the transcript.
 This is an inspection-only investigation. Code execution and reruns are unavailable. Distinguish original recorded observations from deductions by inspection and untested hypotheses. Never claim to have executed code, verified a fix, or reproduced a failure. A proposed patch or imagined output is not experimental evidence. Establish causality from specific code, requirements, test expectations and recorded results; leave unsupported causal hypotheses in alternatives_considered. Use partially_resolved or unresolved when execution would be needed to distinguish plausible causes, especially numerical behavior or upstream dependencies. Record material verification gaps in limitations.
 Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target] references and relevant quotations. Keep evidence specific and consider alternatives.
 Use answer(assessment=...) to finish. Do not repeat a cause solely because multiple assertions fail.
@@ -83,11 +83,17 @@ async def investigate(
     while used < limits.generated_token_budget and len(calls) < limits.tool_rounds + 4:
         remaining = limits.generated_token_budget - used
         investigation_remaining = max(0, remaining - limits.finalization_reserve)
+        history_bytes = len(
+            json.dumps(
+                [m.model_dump(mode="json") for m in history], ensure_ascii=False
+            ).encode()
+        )
         finalizing = (
             finalizing
             or rounds >= limits.tool_rounds
             or len(calls) >= limits.tool_rounds
             or investigation_remaining < 512
+            or history_bytes >= 75000
         )
         cap = (
             remaining
@@ -236,6 +242,14 @@ async def investigate(
                     )
                 except (ValueError, KeyError, TypeError, IndexError) as ex:
                     content = f"Invalid tool arguments: {ex}"
+                projected_bytes = len(
+                    json.dumps(
+                        [m.model_dump(mode="json") for m in history], ensure_ascii=False
+                    ).encode()
+                ) + len(json.dumps(content, ensure_ascii=False).encode())
+                if projected_bytes > 85000:
+                    content = "Evidence withheld to preserve answer context space. Submit your assessment using evidence already read; record any missing evidence as a limitation."
+                    finalizing = True
                 investigation.trace.append(
                     {
                         "tool": call.function,
