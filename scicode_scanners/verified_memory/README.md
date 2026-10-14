@@ -17,7 +17,9 @@ This launches paid inference. GPT source transcripts are excluded because they e
 - `hawk.yaml` specifies the run, scanner, judge model, and transcript filter.
 - `scanner.py` extracts failed subproblems and runs the classifier.
 - `memory.py` defines the classification criteria and structured answer.
-- `data/audit_context.json` contains the audit evidence supplied to the judge.
+- `context.py` assembles audit context for any bundled subproblem at runtime.
+- `data/defects.json` contains the complete retained audit log; `data/historical_evidence.json` preserves optional historical review and target patches by problem.
+- `data/sources.json` records data provenance and checksums.
 - `../logs.py` supports reading older Zstandard-compressed Inspect logs.
 - `../../pyproject.toml` packages and registers the scanner for Hawk.
 
@@ -35,6 +37,32 @@ All-passing transcripts return `no_failed_subproblems` without a judge call. Emp
 
 ## Audit context and validation
 
-The bundled audit context covers the 101 distinct failed subproblems in the configured run. It includes historical findings for corrections omitted from the retained defect taxonomy. It contains audit evidence, not model transcripts. The scanner raises on an uncovered failed step; extend this context before targeting other runs or datasets.
+Scanner version 7 builds context programmatically for all 291 steps in the bundled 65-problem original test set (including the three provided steps). It combines the current and preceding original step text/tests with the whole problem's audit records, plus historical findings and corrected target patches when available. Future original steps and original reference code are excluded. It contains audit evidence, not model transcripts. A different pattern of failures needs no new per-step context entries. An unknown problem or step outside the bundled dataset still raises an explicit error; this is not an automatic dataset-version updater. No data is downloaded at scan time.
+
+The former failure-specific `data/audit_context.json` has been replaced with complete source audit records and deduplicated historical evidence. Historical evidence is preserved without inventing conclusions for previously unreviewed problems. Missing audit records or historical evidence do not establish that no fix occurred. Existing scan results are unchanged; rerun to use the new context assembly.
 
 The Hawk config schema and extraction across all four logs were checked, reproducing 195 failures and 24 empty submissions. The empty-submission branch and an inference-free Scout dry run were also checked. No paid scan was launched during setup. Semantic detection accuracy remains unvalidated.
+
+## Provider-default GLM rerun, judged by Opus 5.5
+
+`hawk-glm-opus55.yaml` targets only GLM-5.3 transcripts from
+`scicode-verified-provider-88bhokyeuxsftey2`. `hawk-glm-opus55-pilot.yaml`
+selects eight shuffled main-problem transcripts (seed 42).
+Both use Opus 5.5 via OpenRouter/Anthropic, medium reasoning, an 8,192-output-token
+limit per judge call, and five concurrent transcripts.
+
+Scanner version 7 automatically covers all bundled steps, including the nine additional failures in this run. Detection criteria are unchanged.
+
+Commit and push the updated scanner and context before launching: Hawk installs
+the Git package, not this working directory. The configs currently use `@main`;
+replace it with the published commit SHA to freeze the scanner version.
+
+```bash
+hawk scan run scicode_scanners/verified_memory/hawk-glm-opus55-pilot.yaml
+hawk scan run scicode_scanners/verified_memory/hawk-glm-opus55.yaml
+```
+
+The cached log has 64 main-problem transcripts, 49 failed subproblems, and two
+empty token-limit submissions: 47 paid judge calls. The inference-free preflight
+and cost assumptions are saved in `../analysis/memory_scan/` relative to this
+repository's parent workspace. No paid scan was launched while preparing these configs.

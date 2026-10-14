@@ -1,0 +1,32 @@
+# Publish the updated scanner context before launching this configuration.
+name: scicode-verified-glm-memory-opus55
+packages:
+  - inspect-scout==0.5.2
+transcripts:
+  sources:
+    - eval_set_id: scicode-verified-provider-88bhokyeuxsftey2
+  filter:
+    where:
+      - model:
+          like: "%/glm-5.3"
+scanners:
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@main"
+    name: scicode_scanners
+    items:
+      - name: verified_memory
+models:
+  - package: openai
+    name: openrouter
+    items:
+      - name: openrouter/anthropic/claude-opus-5.5
+        args:
+          config:
+            max_tokens: 8192
+            extra_body:
+              reasoning:
+                effort: medium
+              provider:
+                only: [anthropic]
+                allow_fallbacks: false
+max_transcripts: 5
+max_processes: 1

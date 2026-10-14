@@ -1,13 +1,12 @@
 """Scan raw verified-run transcripts, returning one result per failed step."""
 import json
-from pathlib import Path
-from inspect_ai.model import ChatMessageSystem, ChatMessageUser
+from inspect_ai.model import ChatMessageSystem
 from inspect_ai.log import read_eval_log_sample
 from ..logs import enable_zstd_zip
 from inspect_scout import Result, Scanner, Transcript, scanner
 from .memory import remembered_original
+from .context import audit_context
 
-AUDIT = json.loads((Path(__file__).parent / 'data/audit_context.json').read_text())
 PROVIDED = {'13.6', '62.1', '76.3'}
 
 
@@ -42,9 +41,7 @@ def failed_cases(t: Transcript) -> list[Transcript]:
     for index, (step, event) in enumerate(zip(steps, events)):
         if values[step] != 0:
             continue
-        if step not in AUDIT:
-            raise ValueError(f'Audit context does not cover {step}; rebuild it for this dataset.')
-        context = dict(AUDIT[step])
+        context = audit_context(step)
         context['model'] = t.model
         context['grading'] = (score.get('metadata', {}).get('per_environment', {})).get(step, {})
         messages = [ChatMessageSystem(content='ANALYST REVIEW CONTEXT\n' + json.dumps(context))]
@@ -59,7 +56,7 @@ def failed_cases(t: Transcript) -> list[Transcript]:
     return cases
 
 
-@scanner(events=['model'], version=5)
+@scanner(events=['model'], version=7)
 def verified_memory() -> Scanner[Transcript]:
     judge = remembered_original()
     async def scan(t: Transcript) -> list[Result]:

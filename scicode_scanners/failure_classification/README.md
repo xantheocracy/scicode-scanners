@@ -6,7 +6,7 @@ Ask “why did this subproblem fail?” for the default SciCode and SciCode-Veri
 
 `underspecified` means the submitted behavior follows a valid interpretation of the prompt but the test imposes an unstated requirement. `wrongly_specified` means an explicit prompt requirement conflicts with the test. `model_error` means a model mistake causally contributes. `operational_error` means an evidenced operational interruption or transient source-eval failure, such as a generation limit truncating the submission or a provider/tool/infrastructure error preventing execution. A syntax error or timeout alone is insufficient: ordinary coding mistakes and inefficient algorithms remain `model_error`. The scanner exhausting its own budget remains an unresolved assessment with a limitation. `other` describes an established cause outside those definitions.
 
-The result `value` is a list of unique supported categories. `answer` is `resolved`, `partially_resolved`, or `unresolved`. Full assessments live in `metadata.assessment`; the source identity is in `metadata.source`, and judge calls, token usage, read-only evidence retrievals are in `metadata.investigation`. Unresolved assessments have an empty category list. All-passing transcripts return an accounting result without a judge call.
+The result `value` is a boolean: positive (`True`) when any supported cause is `underspecified`, `wrongly_specified`, `operational_error`, or `other`; negative (`False`) for model-error-only assessments or no supported causes. Mixed causes are positive if any non-model cause is established. Unique supported categories are retained in `metadata.categories`. `answer` is `resolved`, `partially_resolved`, or `unresolved`. Full assessments live in `metadata.assessment`; the source identity is in `metadata.source`, and judge calls, token usage, read-only evidence retrievals are in `metadata.investigation`. Unresolved assessments are negative with an empty category list; this indicates no established positive cause, not proof of model error. All-passing transcripts return an accounting result without a judge call.
 
 Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence and `causal_contribution`. A stable `cause_id` permits deduplication across affected steps within the same transcript. Matching is conservative: category, origin and normalized `defect_key` must agree. Different model attempts remain separate. Inspect the evidence before treating findings or deduplication as validated.
 
@@ -118,3 +118,8 @@ Scanner version 7 adds `operational_error`. Grading retrieval includes the sourc
 generation stop reason, event reference, and usage when available, without
 loading code or reasoning. Existing classifications are not relabeled; reprocess
 with the updated scanner to apply this category.
+
+Scanner version 8 changes Scout positivity from category-list truthiness to an
+explicit boolean. Model-error-only results are negative; all other established
+cause categories are positive. Existing scan outputs retain their old values and
+need reprocessing or deterministic remapping to adopt this counting convention.

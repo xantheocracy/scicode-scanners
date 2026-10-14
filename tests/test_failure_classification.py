@@ -456,6 +456,8 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
     causes = [r.metadata["assessment"]["causes"][0] for r in results]
     assert causes[0]["cause_id"] == causes[1]["cause_id"]
     for result in results:
+        assert result.value is False
+        assert result.metadata["categories"] == ["model_error"]
         assert result.metadata["investigation_mode"] == "inspection_only"
         assert (
             result.metadata["investigation"]["investigation_mode"] == "inspection_only"
@@ -830,3 +832,24 @@ async def test_operational_error_submission_uses_recorded_generation_limit():
     assert result.causes[0].category == "operational_error"
     assert provenance["termination"] == "answered"
     assert "operational_error" in model.requests[0][0][0].text
+
+
+@pytest.mark.parametrize(
+    ("categories", "expected"),
+    [
+        (["model_error"], False),
+        (["underspecified"], True),
+        (["wrongly_specified"], True),
+        (["operational_error"], True),
+        (["other"], True),
+        (["model_error", "underspecified"], True),
+        ([], False),
+    ],
+)
+def test_scout_positive_mapping(categories, expected):
+    from scicode_scanners.failure_classification.scanner import is_positive_failure
+
+    assert (
+        is_positive_failure([{"category": category} for category in categories])
+        is expected
+    )

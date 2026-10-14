@@ -14,6 +14,18 @@ from .judge import investigate
 from .schema import Limits
 from .tools import Investigation
 
+POSITIVE_CATEGORIES = {
+    "underspecified",
+    "wrongly_specified",
+    "operational_error",
+    "other",
+}
+
+
+def is_positive_failure(causes):
+    """Flag established non-model causes; unknown or model-only causes are non-hits."""
+    return any(cause["category"] in POSITIVE_CATEGORIES for cause in causes)
+
 
 def reconcile(assessment, implementation, transcript_id):
     rows = []
@@ -35,7 +47,7 @@ def reconcile(assessment, implementation, transcript_id):
     return rows
 
 
-@scanner(messages="all", events="all", version=7)
+@scanner(messages="all", events="all", version=8)
 def failure_classification(
     implementation: Implementation,
     generated_token_budget: int = 32768,
@@ -69,7 +81,7 @@ def failure_classification(
             return [
                 Result(
                     label="no_failed_subproblems",
-                    value=[],
+                    value=False,
                     answer="no_failed_subproblems",
                     explanation="All scored steps passed; no judge calls made.",
                 )
@@ -97,7 +109,7 @@ def failure_classification(
             return [
                 Result(
                     label=sid,
-                    value=[],
+                    value=False,
                     answer="extraction_checked",
                     metadata={
                         "evidence_packet": packets[sid],
@@ -115,7 +127,7 @@ def failure_classification(
             checkpoint = CheckpointStore(
                 checkpoint_uri or hawk_results_uri(),
                 {
-                    "scanner_version": 7,
+                    "scanner_version": 8,
                     "implementation": implementation,
                     "transcript": t.transcript_id,
                     "source_uri": t.source_uri,
@@ -170,7 +182,7 @@ def failure_classification(
             results.append(
                 Result(
                     label=sid,
-                    value=sorted({c["category"] for c in causes}),
+                    value=is_positive_failure(causes),
                     answer=assessment.status,
                     explanation=assessment.explanation,
                     references=[
@@ -189,6 +201,7 @@ def failure_classification(
                         )
                     ],
                     metadata={
+                        "categories": sorted({c["category"] for c in causes}),
                         "source": source,
                         "investigation_mode": "inspection_only",
                         "assessment": result,

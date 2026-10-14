@@ -1,0 +1,14 @@
+{
+  "defects": {
+    "source": "scicode-verified/analysis/defects.json",
+    "repository": "https://github.com/flyingwagner/scicode-verified",
+    "sha256": "756e97cd50cca2cac0d6d2eb4f3e817fd6794f21a9b57647c220e830f69c9a2a"
+  },
+  "original_problems": {
+    "source": "scicode_scanners/defect_investigation/data/scicode.jsonl",
+    "sha256": "38797fef78f434720be6d053b4f3a86839d6f8ea5fb9115450677cd3a6edf81d"
+  },
+  "historical_evidence": {
+    "source": "Deduplicated problem-level historical_audit_evidence and corrected_target_patches from the former audit_context.json; no new historical conclusions inferred."
+  }
+}
