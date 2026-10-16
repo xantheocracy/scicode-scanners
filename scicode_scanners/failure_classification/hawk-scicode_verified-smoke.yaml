@@ -13,7 +13,7 @@ transcripts:
       - transcript_id: BQqvcbeZrr2FACZLszQqsh
 
 scanners:
-  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@c9c5cca986c44e63731aa1551fbea722cc77b7df"
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@fd5ad9c432e77070d39cb7c752407f3c52f0a3a7"
     name: scicode_scanners
     items:
       - name: failure_classification
