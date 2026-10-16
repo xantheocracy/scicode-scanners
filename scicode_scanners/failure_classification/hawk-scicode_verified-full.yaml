@@ -6,10 +6,13 @@ packages:
 
 transcripts:
   sources:
-    - eval_set_id: scicode-verified-default--tu1flh8tik8bh6l2
+    - eval_set_id: scicode-verified-provider-88bhokyeuxsftey2
+  filter:
+    where:
+      - model: openrouter/openrouter/anthropic/claude-opus-5.5
 
 scanners:
-  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@8487fa3bd7e90c13da3f689e7c6e1c4d3ffe1d35"
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@c9c5cca986c44e63731aa1551fbea722cc77b7df"
     name: scicode_scanners
     items:
       - name: failure_classification

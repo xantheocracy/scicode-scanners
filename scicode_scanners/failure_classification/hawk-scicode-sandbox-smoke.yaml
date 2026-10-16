@@ -17,7 +17,7 @@ transcripts:
       - transcript_id: 6KaZBFP2RjaqsiqbFMPN3A
 
 scanners:
-  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@8487fa3bd7e90c13da3f689e7c6e1c4d3ffe1d35"
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@c9c5cca986c44e63731aa1551fbea722cc77b7df"
     name: scicode_scanners
     items:
       - name: failure_classification
