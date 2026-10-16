@@ -1,0 +1,43 @@
+# One quick paid example: Claude Opus 5.5, Verified problem 80, one failed step (80.7).
+# 80.7 ended with input_context_limit under scanner version 10.
+# Run with: hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-quick.yaml
+name: scicode_verified-failure-classification-quick
+
+packages:
+  - inspect-scout==0.5.2
+  - inspect-k8s-sandbox @ git+https://github.com/METR/inspect_k8s_sandbox.git@d07147e9395936ae45cb97bb4b9a907d95e9855d
+
+transcripts:
+  sources:
+    - eval_set_id: scicode-verified-provider-88bhokyeuxsftey2
+  filter:
+    limit: 1
+    where:
+      - transcript_id: f3ZP6yLMyko8zqrskFqTE8
+
+scanners:
+  - package: "scicode-scanners @ git+https://github.com/xantheocracy/scicode-scanners.git@0184e17617ea731a84f0e372b62b6b91179eb230"
+    name: scicode_scanners
+    items:
+      - name: failure_classification
+        args:
+          implementation: scicode_verified
+          generated_token_budget: 32768
+          finalization_reserve: 8192
+          per_call_tokens: 4096
+          tool_rounds: 12
+          reasoning_effort: high
+
+models:
+  - package: openai
+    name: openrouter
+    items:
+      - name: openrouter/z-ai/glm-5.3
+        args:
+          config:
+            max_retries: 0
+            extra_body:
+              reasoning:
+                effort: high
+
+max_transcripts: 1
