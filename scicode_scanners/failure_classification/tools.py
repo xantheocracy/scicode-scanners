@@ -7,23 +7,25 @@ from typing import Any, Literal
 from inspect_ai.tool import ToolDef
 from inspect_ai.util import OutputLimitExceededError
 
-from .adapters import CaseSet, redact
+from .adapters import CaseSet, code_outline, redact
 from .assets import decode_targets, target_metadata, typed
 from .sandbox import THREAD_ENV, interpreters, sandbox_errors
 from .schema import Limits
 
 PAGE_CHARS = 12000
+# The slim packet (current step, earlier-step index, capped called code) fits whole.
+PACKET_CHARS = 40000
 OUTPUT_CHARS = 5000
 
 
-def evidence_page(value, char_offset=0):
+def evidence_page(value, char_offset=0, page_chars=PAGE_CHARS):
     """Bound serialized evidence; subsequent pages retain access to the full payload."""
     if char_offset < 0:
         raise ValueError("char_offset must be nonnegative.")
     text = json.dumps(redact(value), ensure_ascii=False)
-    if len(text) <= PAGE_CHARS and char_offset == 0:
+    if len(text) <= page_chars and char_offset == 0:
         return text
-    end = min(char_offset + PAGE_CHARS, len(text))
+    end = min(char_offset + page_chars, len(text))
     return json.dumps(
         {
             "format": "json_text_excerpt",
@@ -53,6 +55,7 @@ class Investigation:
             for name in (
                 "current_evidence",
                 "retrieve_step",
+                "read_code",
                 "full_transcript",
                 "read_message",
                 "inspect_target",
@@ -108,22 +111,27 @@ class Investigation:
         step_id: str,
         char_offset: int = 0,
         section: Literal[
-            "grading", "reasoning", "tests", "prompt", "response"
+            "grading", "code", "reasoning", "tests", "prompt", "response"
         ] = "grading",
     ) -> str:
         """Read a selected step section; default grading excludes solutions and model inputs.
 
         Args:
-            step_id: Subproblem identifier. Current and previous solutions are in current_evidence.
+            step_id: Subproblem identifier, as listed in earlier_steps.
             char_offset: Character offset for pagination; follow next_char_offset.
-            section: grading for recorded observations, reasoning for exposed reasoning only,
-                tests for test source, prompt for exact model inputs, or response for raw output.
-                Prompt and response explicitly reload code; request only when necessary.
+            section: grading for recorded observations, code for the step's extracted submitted
+                code, reasoning for exposed reasoning only, tests for test source, prompt for
+                exact model inputs, or response for raw output. Prompt and response explicitly
+                reload code; request only when necessary.
         """
         step = self.cases.steps[step_id]
         event = step.get("event")
         evidence = {"step": step_id, "response_reference": step["response_ref"]}
-        if section == "grading":
+        if section == "code":
+            evidence["provided"] = step["provided"]
+            evidence["code_status"] = code_outline(step["code"])[0]
+            evidence["submitted_code"] = step["code"]
+        elif section == "grading":
             evidence["score"] = self.cases.scores.get(step_id)
             if event:
                 evidence["generation"] = {
@@ -163,6 +171,23 @@ class Investigation:
         else:
             raise ValueError("Unknown step section.")
         return evidence_page(evidence, char_offset)
+
+    async def read_code(self, name: str, char_offset: int = 0) -> str:
+        """Read the submitted definition of one function or class, from the current or an earlier step.
+
+        Args:
+            name: Top-level function or class name, as listed in earlier_steps defines.
+            char_offset: Character offset for pagination; follow next_char_offset.
+        """
+        order = list(self.cases.steps)
+        after = order[order.index(self.sid) + 1] if self.sid != order[-1] else None
+        found = self.cases.definitions(before=after).get(name)
+        if found is None:
+            raise ValueError(
+                f"No parsed definition of {name!r} up to step {self.sid}; use retrieve_step(section='code') for steps whose code does not parse."
+            )
+        sid, source = found
+        return evidence_page({"step": sid, "name": name, "source": source}, char_offset)
 
     async def read_message(
         self,

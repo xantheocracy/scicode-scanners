@@ -22,7 +22,7 @@ from .sandbox import IMAGES, interpreters, investigation_sandbox
 from .schema import Limits
 from .tools import Investigation
 
-VERSION = 10
+VERSION = 11
 
 POSITIVE_CATEGORIES = {
     "underspecified",

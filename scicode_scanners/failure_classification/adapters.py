@@ -1,5 +1,6 @@
 """Recover default-harness submissions without exposing reference answers."""
 
+import ast
 import asyncio
 import re
 import shlex
@@ -24,6 +25,29 @@ FORBIDDEN = {
     "audit_context",
     "audit_findings",
 }
+CALLED_CODE_CHARS = 15000
+
+
+def code_outline(code: str) -> tuple[str, dict[str, str], set[str]]:
+    """Return parse status, top-level definitions with source, and referenced names."""
+    if not code.strip():
+        return "empty", {}, set()
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return "does_not_parse", {}, set()
+    definitions = {
+        node.name: ast.get_source_segment(code, node) or ""
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    # Name loads cover calls and functions passed as values, e.g. solver(f, x).
+    referenced = {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+    return "ok", definitions, referenced
 
 
 def redact(value: Any) -> Any:
@@ -132,33 +156,72 @@ class CaseSet:
         if problems:
             raise ValueError(" ".join(problems))
 
+    def definitions(self, before: str | None = None) -> dict[str, tuple[str, str]]:
+        """Latest top-level definition of each name, as (step, source), up to a step."""
+        order = list(self.steps)
+        steps = order[: order.index(before)] if before else order
+        found = {}
+        for sid in steps:
+            for name, source in code_outline(self.steps[sid]["code"])[1].items():
+                found[name] = (sid, source)
+        return found
+
     def packet(self, step_id: str) -> dict[str, Any]:
         order = list(self.steps)
+        step = self.steps[step_id]
+        status, _, referenced = code_outline(step["code"])
+        earlier = self.definitions(before=step_id)
+        used = {n: earlier[n] for n in sorted(referenced) if n in earlier}
+        # Inherited causes usually lie in directly used earlier code, so include it up front.
+        called_code, omitted, chars = [], [], 0
+        for name, (sid, source) in used.items():
+            if chars + len(source) > CALLED_CODE_CHARS:
+                omitted.append(name)
+                continue
+            chars += len(source)
+            called_code.append({"step": sid, "name": name, "source": source})
 
-        def solution(sid):
-            step = self.steps[sid]
+        def index_entry(sid):
+            earlier_step = self.steps[sid]
+            code_status, defs, _ = code_outline(earlier_step["code"])
+            description = earlier_step["record"]["step_description_prompt"].strip()
+            # Headers embed full docstrings; the signature line suffices for the index.
+            header = (earlier_step["record"].get("function_header") or "").strip()
             return {
                 "step": sid,
+                "provided": earlier_step["provided"],
+                "summary": description.split("\n", 1)[0][:300],
+                "signature": header.split("\n", 1)[0],
+                "defines": list(defs),
+                "used_by_current": sorted(n for n in defs if n in used),
+                "code_chars": len(earlier_step["code"]),
+                "code_status": code_status,
+                "response_reference": earlier_step["response_ref"],
+            }
+
+        return {
+            "implementation": self.implementation,
+            "affected_step": step_id,
+            "current_solution": {
+                "step": step_id,
                 "provided": step["provided"],
                 "description": step["record"]["step_description_prompt"],
                 "interface": {
                     k: step["record"].get(k) for k in ("function_header", "return_line")
                 },
                 "submitted_code": step["code"],
+                "code_status": status,
                 "response_reference": step["response_ref"],
-            }
-
-        return {
-            "implementation": self.implementation,
-            "affected_step": step_id,
-            "current_solution": solution(step_id),
-            "previous_solutions": [
-                solution(sid) for sid in order[: order.index(step_id)]
+            },
+            "earlier_steps": [
+                index_entry(sid) for sid in order[: order.index(step_id)]
             ],
+            "called_earlier_code": called_code,
+            "called_earlier_code_omitted": omitted,
             "dependencies": self.problem["required_dependencies"],
             "tests": [
                 {"reference": f"T:{step_id}:{i + 1}", "source": test}
-                for i, test in enumerate(self.steps[step_id]["record"]["test_cases"])
+                for i, test in enumerate(step["record"]["test_cases"])
             ],
         }
 

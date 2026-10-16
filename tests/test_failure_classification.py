@@ -122,7 +122,7 @@ def test_reference_fields_removed_recursively():
     assert "secret earlier code" not in packet
     assert "NEXT STEP" not in packet
     assert (
-        cases.packet("1.2")["previous_solutions"][0]["submitted_code"].strip()
+        cases.packet("1.2")["called_earlier_code"][0]["source"].strip()
         == "def f(): return 0"
     )
     assert redact({"x": [{"ground_truth_code": "secret", "ok": 1}]}) == {
@@ -467,6 +467,7 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
             "answer",
             "current_evidence",
             "retrieve_step",
+            "read_code",
             "full_transcript",
             "read_message",
             "inspect_target",
@@ -548,13 +549,13 @@ async def test_large_initial_evidence_is_bounded_and_remains_retrievable():
     )
     await investigate(model, inv, packet, Limits())
     initial = json.loads(model.requests[0][0][1].text)
-    assert initial["next_char_offset"] == 12000
-    assert len(initial["excerpt"]) == 12000
-    remaining = json.loads(await inv.current_evidence(char_offset=12000))
-    assert remaining["char_offset"] == 12000 and remaining["total_chars"] > 1000000
+    assert initial["next_char_offset"] == 40000
+    assert len(initial["excerpt"]) == 40000
+    remaining = json.loads(await inv.current_evidence(char_offset=40000))
+    assert remaining["char_offset"] == 40000 and remaining["total_chars"] > 1000000
     serialized = json.dumps({"case": packet}, ensure_ascii=False, default=str)
-    assert initial["excerpt"] == serialized[:12000]
-    assert remaining["excerpt"] == serialized[12000:24000]
+    assert initial["excerpt"] == serialized[:40000]
+    assert remaining["excerpt"] == serialized[40000:52000]
 
 
 @pytest.mark.asyncio
@@ -580,13 +581,15 @@ def test_initial_packet_contains_only_scoped_evidence():
         "implementation",
         "affected_step",
         "current_solution",
-        "previous_solutions",
+        "earlier_steps",
+        "called_earlier_code",
+        "called_earlier_code_omitted",
         "dependencies",
         "tests",
     }
     assert "UNNEEDED" not in json.dumps(packet)
-    assert [s["step"] for s in packet["previous_solutions"]] == ["1.1"]
-    assert not c.packet("1.1")["previous_solutions"]
+    assert [s["step"] for s in packet["earlier_steps"]] == ["1.1"]
+    assert not c.packet("1.1")["earlier_steps"]
 
 
 def test_large_target_metadata_has_no_values():
@@ -1252,3 +1255,79 @@ def test_sandbox_requests_its_full_memory_limit():
 
     resources = helm_values("scicode_verified")["services"]["default"]["resources"]
     assert resources["requests"]["memory"] == resources["limits"]["memory"]
+
+
+def test_packet_indexes_earlier_steps_and_includes_used_definitions():
+    c = fixture_cases()
+    packet = c.packet("1.2")
+    [entry] = packet["earlier_steps"]
+    assert entry["step"] == "1.1"
+    assert entry["defines"] == ["f"]
+    assert entry["used_by_current"] == ["f"]
+    assert entry["code_status"] == "ok"
+    assert "submitted_code" not in entry
+    assert packet["called_earlier_code"] == [
+        {"step": "1.1", "name": "f", "source": "def f(): return 0"}
+    ]
+    assert packet["current_solution"]["code_status"] == "ok"
+
+
+def test_called_code_respects_cap_and_reports_omissions(monkeypatch):
+    from scicode_scanners.failure_classification import adapters
+
+    c = fixture_cases()
+    monkeypatch.setattr(adapters, "CALLED_CODE_CHARS", 5)
+    packet = c.packet("1.2")
+    assert packet["called_earlier_code"] == []
+    assert packet["called_earlier_code_omitted"] == ["f"]
+
+
+def test_empty_and_unparsable_code_are_flagged():
+    from scicode_scanners.failure_classification.adapters import code_outline
+
+    assert code_outline("")[0] == "empty"
+    assert code_outline("def f(:\n  pass")[0] == "does_not_parse"
+    c = fixture_cases()
+    c.steps["1.1"]["code"] = "def f(:"
+    packet = c.packet("1.2")
+    assert packet["earlier_steps"][0]["code_status"] == "does_not_parse"
+    assert packet["called_earlier_code"] == []
+
+
+@pytest.mark.asyncio
+async def test_code_retrieval_by_step_and_by_name():
+    c = fixture_cases()
+    inv = Investigation(c, "1.1", None)
+    by_step = json.loads(await inv.retrieve_step("1.1", section="code"))
+    assert by_step["submitted_code"].strip() == "def f(): return 0"
+    assert by_step["code_status"] == "ok"
+    by_name = json.loads(await inv.read_code("f"))
+    assert by_name == {"step": "1.1", "name": "f", "source": "def f(): return 0"}
+    # Later steps are not part of this investigation's evidence.
+    with pytest.raises(ValueError, match="No parsed definition"):
+        await inv.read_code("g")
+    later = Investigation(c, "1.2", None)
+    assert json.loads(await later.read_code("g"))["step"] == "1.2"
+
+
+@pytest.mark.asyncio
+async def test_slim_packet_is_sent_whole_in_first_message():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    packet = {**c.packet("1.2"), "filler": "a" * 30000}
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="answer",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                500,
+            )
+        ]
+    )
+    await investigate(model, inv, packet, Limits())
+    first = json.loads(model.requests[0][0][1].text)
+    assert "next_char_offset" not in first
+    assert first["case"]["filler"] == "a" * 30000
