@@ -1107,3 +1107,114 @@ def test_smoke_only_requires_execution():
 
     with pytest.raises(ValueError, match="requires execution"):
         failure_classification("scicode", execution=False, smoke_only=True)
+
+
+def test_concurrent_target_downloads_do_not_share_partial_file(tmp_path, monkeypatch):
+    import hashlib
+    import os
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from scicode_scanners.failure_classification import assets
+
+    content = b"targets"
+    sha = hashlib.sha256(content).hexdigest()
+    monkeypatch.setitem(
+        assets.TARGETS,
+        "scicode_verified",
+        {**assets.TARGETS["scicode_verified"], "sha256": sha},
+    )
+    downloads = []
+    start = threading.Barrier(2)
+
+    def fixed_partial_download(url, expected, dest):
+        # Mirrors inspect_ai.util.download: shared `.partial` path, then os.replace.
+        if dest.exists() and hashlib.sha256(dest.read_bytes()).hexdigest() == expected:
+            return dest
+        downloads.append(url)
+        tmp = dest.with_suffix(dest.suffix + ".partial")
+        tmp.write_bytes(content)
+        time.sleep(0.2)
+        os.replace(tmp, dest)
+        return dest
+
+    monkeypatch.setattr(assets, "download", fixed_partial_download)
+
+    def worker():
+        start.wait()
+        return assets.fetch_targets("scicode_verified", tmp_path)
+
+    with ThreadPoolExecutor(2) as pool:
+        paths = [f.result() for f in [pool.submit(worker) for _ in range(2)]]
+    assert paths[0] == paths[1]
+    assert paths[0].read_bytes() == content
+    assert len(downloads) == 1
+
+
+def test_references_followed_by_punctuation_are_accepted():
+    c = fixture_cases()
+    cause = assessment().causes[0]
+    cause.evidence = [
+        "X:1: stdout shows f() == 0",
+        "M:m-1.1: returns zero;",
+        "see T:1.2:1, which expects one",
+    ]
+    c.validate_cause(cause, "1.2", ["X:1"])
+
+
+def test_validation_reports_every_problem_in_one_rejection():
+    c = fixture_cases()
+    cause = assessment().causes[0]
+    cause.origin_type = "external"
+    cause.dependency_path = ["1.1 f (passed, but returns zero)", "1.2"]
+    cause.evidence = ["T:1.2", "X:9"]
+    with pytest.raises(ValueError) as ex:
+        c.validate_cause(cause, "1.2", ["X:1"])
+    message = str(ex.value)
+    assert "external/unknown requires an empty origin_steps" in message
+    assert "dependency_path must contain only" in message
+    assert "1.1 f (passed, but returns zero)" in message
+    assert "'T:1.2'" in message and "'X:9'" in message
+
+
+@pytest.mark.asyncio
+async def test_rejected_answer_is_stubbed_in_history_but_kept_in_calls():
+    c = fixture_cases()
+    inv = Investigation(c, "1.2", None)
+    bad = assessment()
+    bad.causes.append(bad.causes[0].model_copy())
+    bad.causes[0].evidence = ["M:unknown-message"]
+    bad.causes[1].dependency_path = ["1.1 description"]
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="bad",
+                    function="answer",
+                    arguments={"assessment": bad.model_dump()},
+                ),
+                900,
+            ),
+            output(
+                ToolCall(
+                    id="good",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                900,
+            ),
+        ]
+    )
+    result, provenance = await investigate(model, inv, c.packet("1.2"), Limits())
+    assert result.status == "resolved"
+    retry_history = model.requests[1][0]
+    rejected = [m for m in retry_history if getattr(m, "tool_calls", None)][
+        -1
+    ].tool_calls[0]
+    assert rejected.arguments == {
+        "assessment": "[rejected submission omitted; see error]"
+    }
+    error = retry_history[-2].text
+    assert "causes[0]" in error and "causes[1]" in error
+    assert "f returns zero" in json.dumps(provenance["calls"][0]["message"])

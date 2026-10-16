@@ -129,3 +129,11 @@ need reprocessing or deterministic remapping to adopt this counting convention.
 Scanner version 9 restores sandboxed `python` and `rerun` experiments as the
 default (`execution: false` keeps inspection-only behavior) and restores
 `smoke_only`. Result metadata records `investigation_mode` and `sandbox_image`.
+
+Scanner version 10 makes answer validation tolerant of punctuation after
+references (`X:1: stdout ...`) and reports every validation problem across all
+causes in one rejection. Rejected submissions are replaced in the judge's
+history by a stub, so retries do not accumulate copies of large assessments; the
+full submission remains in `metadata.investigation.calls`. Schema descriptions
+state the step-ID and reference formats. Target downloads are serialized across
+Scout worker processes with a file lock.

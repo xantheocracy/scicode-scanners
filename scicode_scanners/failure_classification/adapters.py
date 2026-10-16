@@ -64,30 +64,45 @@ class CaseSet:
     files: dict[str, str] = field(default_factory=dict)
 
     def validate_cause(self, cause, affected: str, experiment_refs=()):
+        """Raise one ValueError listing every problem, so a single correction suffices."""
         order = list(self.steps)
         origins = cause.origin_steps
-        if any(
-            s not in self.steps or order.index(s) > order.index(affected)
-            for s in origins
-        ):
-            raise ValueError(
-                "Origin must be an existing current or preceding subproblem."
+        problems = []
+
+        def invalid_steps(steps):
+            return [
+                s
+                for s in steps
+                if s not in self.steps or order.index(s) > order.index(affected)
+            ]
+
+        if bad := invalid_steps(origins):
+            problems.append(
+                f"origin_steps must be existing current or preceding step IDs; invalid: {bad}"
             )
         if cause.origin_type == "current" and origins != [affected]:
-            raise ValueError("Current origin must name the affected step.")
+            problems.append(
+                f"origin_type current requires origin_steps == [{affected!r}]."
+            )
         if cause.origin_type == "earlier" and (not origins or affected in origins):
-            raise ValueError("Earlier origin must name preceding steps.")
+            problems.append(
+                f"origin_type earlier requires preceding step IDs only, excluding {affected!r}."
+            )
         if cause.origin_type == "author_provided" and (
-            not origins or any(not self.steps[s]["provided"] for s in origins)
+            not origins
+            or any(s in self.steps and not self.steps[s]["provided"] for s in origins)
         ):
-            raise ValueError("Author-provided origins must refer to supplied code.")
+            problems.append(
+                "origin_type author_provided requires origin_steps naming supplied-code steps."
+            )
         if cause.origin_type in {"external", "unknown"} and origins:
-            raise ValueError("External/unknown origins use an empty step list.")
-        if any(
-            s not in self.steps or order.index(s) > order.index(affected)
-            for s in cause.dependency_path
-        ):
-            raise ValueError("Invalid dependency path.")
+            problems.append(
+                "origin_type external/unknown requires an empty origin_steps list."
+            )
+        if bad := invalid_steps(cause.dependency_path):
+            problems.append(
+                f"dependency_path must contain only existing current or preceding step IDs (no descriptions); invalid: {bad}"
+            )
         known = set(experiment_refs)
         for event in self.events:
             known.add(f"E:{event.uuid}")
@@ -101,15 +116,21 @@ class CaseSet:
         for sid, step in self.steps.items():
             for i in range(len(step["record"]["test_cases"])):
                 known.update({f"T:{sid}:{i + 1}", f"T:{sid}:{i + 1}:target"})
+        # References are often followed by prose punctuation, e.g. "X:1: stdout shows ...".
         cited = {
-            reference.rstrip(".")
+            reference.rstrip(".:,;")
             for evidence in cause.evidence
             for reference in re.findall(r"\b[METX]:[A-Za-z0-9_.:-]+", evidence)
         }
-        if not cited or cited - known:
-            raise ValueError(
-                f"Cite existing evidence references; unknown references: {sorted(cited - known)}"
+        if not cited:
+            problems.append("evidence must cite at least one M/E/T/X reference.")
+        elif cited - known:
+            problems.append(
+                "evidence cites unknown references (use exact M:<id>, E:<id>, T:<step>:<test>[:target] "
+                f"with one test index, or X:<n>): {sorted(cited - known)}"
             )
+        if problems:
+            raise ValueError(" ".join(problems))
 
     def packet(self, step_id: str) -> dict[str, Any]:
         order = list(self.steps)

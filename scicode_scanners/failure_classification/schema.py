@@ -14,10 +14,17 @@ class Cause(BaseModel):
     category: Category
     mechanism: str = Field(min_length=1)
     origin_type: Literal["current", "earlier", "author_provided", "external", "unknown"]
-    origin_steps: list[str]
-    dependency_path: list[str]
+    origin_steps: list[str] = Field(
+        description="Step IDs only. current: exactly the affected step; earlier: preceding steps, "
+        "excluding the affected step; author_provided: supplied-code steps; external/unknown: [].",
+    )
+    dependency_path: list[str] = Field(
+        description='Step IDs only, e.g. ["13.7", "13.9"]; no descriptions or other labels.',
+    )
     evidence: list[str] = Field(
-        min_length=1, description="Stable M/E/T/X references and quotations."
+        min_length=1,
+        description="Quotations citing exact references: M:<message-id>, E:<event-id>, "
+        "T:<step>:<test>[:target] with a single one-based test index, or X:<n>.",
     )
     causal_contribution: str = Field(
         min_length=1,

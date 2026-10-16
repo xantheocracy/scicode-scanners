@@ -1,6 +1,7 @@
 """Pinned HDF5 assets, exact harness decoders, and lossless typed previews."""
 
 import asyncio
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -38,6 +39,21 @@ def verify_targets(path: Path, implementation: Implementation) -> Path:
     return path
 
 
+def fetch_targets(implementation: Implementation, cache: Path) -> Path:
+    """Download and verify targets, serialized across Scout worker processes."""
+    cache.mkdir(parents=True, exist_ok=True)
+    spec = TARGETS[implementation]
+    path = cache / spec["filename"]
+    # Downloads share a fixed `.partial` path, so concurrent processes must not overlap.
+    with open(path.with_suffix(path.suffix + ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if implementation == "scicode":
+            gdrive_download(spec["gdrive"], spec["sha256"], path)
+        else:
+            download(spec["url"], spec["sha256"], path)
+        return verify_targets(path, implementation)
+
+
 async def target_file(
     implementation: Implementation, override: str | None = None
 ) -> Path:
@@ -47,16 +63,7 @@ async def target_file(
                 verify_targets, Path(override), implementation
             )
         cache = Path.home() / ".cache" / "scicode_failure_classification"
-        cache.mkdir(parents=True, exist_ok=True)
-        spec = TARGETS[implementation]
-        path = cache / spec["filename"]
-        if implementation == "scicode":
-            await asyncio.to_thread(
-                gdrive_download, spec["gdrive"], spec["sha256"], path
-            )
-        else:
-            await asyncio.to_thread(download, spec["url"], spec["sha256"], path)
-        return await asyncio.to_thread(verify_targets, path, implementation)
+        return await asyncio.to_thread(fetch_targets, implementation, cache)
 
 
 def shard_targets(path: Path, step_ids: list[str]) -> bytes:

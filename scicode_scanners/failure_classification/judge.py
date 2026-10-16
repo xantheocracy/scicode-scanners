@@ -216,22 +216,33 @@ async def investigate(
             if call.function == "answer":
                 try:
                     assessment = Assessment.model_validate(call.arguments["assessment"])
-                    for cause in assessment.causes:
-                        investigation.cases.validate_cause(
-                            cause,
-                            investigation.sid,
-                            [
-                                e["reference"]
-                                for e in investigation.trace
-                                if "reference" in e
-                            ],
-                        )
+                    problems = []
+                    for i, cause in enumerate(assessment.causes):
+                        try:
+                            investigation.cases.validate_cause(
+                                cause,
+                                investigation.sid,
+                                [
+                                    e["reference"]
+                                    for e in investigation.trace
+                                    if "reference" in e
+                                ],
+                            )
+                        except (ValueError, KeyError) as ex:
+                            problems.append(f"causes[{i}]: {ex}")
+                    if problems:
+                        raise ValueError(" | ".join(problems))
                 except (ValueError, KeyError, TypeError) as ex:
+                    # The full rejected submission stays in `calls`; the history keeps only a stub,
+                    # so retries do not accumulate copies of large assessments.
+                    call.arguments = {
+                        "assessment": "[rejected submission omitted; see error]"
+                    }
                     history.append(
                         ChatMessageTool(
                             tool_call_id=call.id,
                             function="answer",
-                            content=f"Invalid assessment: {ex}. Correct it within remaining budget.",
+                            content=f"Invalid assessment: {ex}. Resubmit the complete corrected assessment within remaining budget.",
                         )
                     )
                     finalizing = True
