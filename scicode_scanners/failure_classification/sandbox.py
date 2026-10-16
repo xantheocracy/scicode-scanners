@@ -50,6 +50,15 @@ class FreshSandbox:
             )
 
 
+def sandbox_errors() -> tuple[type[Exception], ...]:
+    """Provider infrastructure errors, e.g. a pod replaced after eviction."""
+    try:
+        from k8s_sandbox import K8sError
+    except ImportError:
+        return ()
+    return (K8sError,)
+
+
 def helm_values(implementation, image=None, runtime_class="gvisor"):
     return {
         "allowDomains": [],
@@ -62,8 +71,10 @@ def helm_values(implementation, image=None, runtime_class="gvisor"):
                 "command": ["tail", "-f", "/dev/null"],
                 "runtimeClassName": runtime_class,
                 "nodeSelector": {"kubernetes.io/arch": "amd64"},
+                # Requesting the full memory limit makes pods last in line for eviction
+                # under node memory pressure.
                 "resources": {
-                    "requests": {"cpu": "500m", "memory": "1Gi"},
+                    "requests": {"cpu": "500m", "memory": "4Gi"},
                     "limits": {"cpu": "2", "memory": "4Gi"},
                 },
                 "securityContext": {

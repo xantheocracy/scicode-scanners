@@ -9,7 +9,7 @@ from inspect_ai.util import OutputLimitExceededError
 
 from .adapters import CaseSet, redact
 from .assets import decode_targets, target_metadata, typed
-from .sandbox import THREAD_ENV, interpreters
+from .sandbox import THREAD_ENV, interpreters, sandbox_errors
 from .schema import Limits
 
 PAGE_CHARS = 12000
@@ -450,6 +450,7 @@ class Investigation:
         timeout = min(self.limits.python_timeout, int(remaining))
         self.experiments += 1
         reference = f"X:{self.experiments}"
+        infrastructure = sandbox_errors()
         start = time.monotonic()
         try:
             result = await self.sandbox.exec(
@@ -482,6 +483,19 @@ class Investigation:
                 "passed": False,
                 "output_limit_exceeded": ex.limit_str,
                 "stdout": ex.truncated_output or "",
+                "timeout_seconds": timeout,
+            }
+        except infrastructure as ex:
+            # Experiments rewrite their files into a fresh directory, so later ones
+            # work on a replacement pod; only this experiment's result is lost.
+            output = {
+                "reference": reference,
+                "environment": label,
+                "passed": None,
+                "sandbox_failure": f"{type(ex).__name__}: {ex}"[:1000],
+                "note": "The sandbox pod was replaced or restarted during this experiment, "
+                "possibly because it used too much memory (4 GiB limit). This is not "
+                "evidence about the submission. Later experiments run on a fresh pod.",
                 "timeout_seconds": timeout,
             }
         finally:

@@ -1218,3 +1218,37 @@ async def test_rejected_answer_is_stubbed_in_history_but_kept_in_calls():
     error = retry_history[-2].text
     assert "causes[0]" in error and "causes[1]" in error
     assert "f returns zero" in json.dumps(provenance["calls"][0]["message"])
+
+
+@pytest.mark.asyncio
+async def test_replaced_sandbox_pod_is_an_experiment_result_not_a_scan_error(
+    monkeypatch,
+):
+    from scicode_scanners.failure_classification import tools
+
+    class PodReplaced(Exception):
+        pass
+
+    class FlakySandbox(RecordingSandbox):
+        async def exec(self, cmd, **kwargs):
+            if not self.commands:
+                self.commands.append(cmd)
+                raise PodReplaced("Pod 'agent-env-x-default-0' has been replaced")
+            return await super().exec(cmd, **kwargs)
+
+    monkeypatch.setattr(tools, "sandbox_errors", lambda: (PodReplaced,))
+    inv = Investigation(fixture_cases(), "1.2", None, FlakySandbox(), Limits())
+    lost = json.loads(await inv.python("print('heavy')"))
+    assert lost["reference"] == "X:1"
+    assert lost["passed"] is None
+    assert "has been replaced" in lost["sandbox_failure"]
+    assert "not evidence about the submission" in lost["note"]
+    after = json.loads(await inv.python("print('light')"))
+    assert after["reference"] == "X:2" and after["passed"] is True
+
+
+def test_sandbox_requests_its_full_memory_limit():
+    from scicode_scanners.failure_classification.sandbox import helm_values
+
+    resources = helm_values("scicode_verified")["services"]["default"]["resources"]
+    assert resources["requests"]["memory"] == resources["limits"]["memory"]
