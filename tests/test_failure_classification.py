@@ -449,9 +449,9 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
     monkeypatch.setattr(scanner_module, "get_model", lambda: model)
     monkeypatch.setattr(scanner_module, "hawk_results_uri", lambda: None)
     model.name = "mock-judge"
-    results = await scanner_module.failure_classification(c.implementation)(
-        c.transcript
-    )
+    results = await scanner_module.failure_classification(
+        c.implementation, execution=False
+    )(c.transcript)
     assert [r.label for r in results] == ["1.1", "1.2"]
     causes = [r.metadata["assessment"]["causes"][0] for r in results]
     assert causes[0]["cause_id"] == causes[1]["cause_id"]
@@ -853,3 +853,257 @@ def test_scout_positive_mapping(categories, expected):
         is_positive_failure([{"category": category} for category in categories])
         is expected
     )
+
+
+class RecordingSandbox:
+    def __init__(self, passed=lambda cmd: True, stdout="", stderr=""):
+        self.passed, self.stdout, self.stderr = passed, stdout, stderr
+        self.commands = []
+
+    async def exec(self, cmd, **kwargs):
+        assert kwargs["timeout_retry"] is False
+        self.commands.append(cmd)
+        ok = self.passed(cmd)
+        return SimpleNamespace(
+            success=ok,
+            returncode=0 if ok else 1,
+            stdout=self.stdout,
+            stderr=self.stderr,
+        )
+
+
+@pytest.mark.asyncio
+async def test_python_timeout_is_not_recorded_as_original_failure():
+    class TimeoutSandbox:
+        async def exec(self, *args, **kwargs):
+            assert kwargs["timeout_retry"] is False
+            raise TimeoutError
+
+    c = fixture_cases(True)
+    inv = Investigation(c, "1.2", None, TimeoutSandbox(), Limits())
+    result = json.loads(await inv.rerun("1.2", environment="2024"))
+    assert result["per_environment"]["2024"]["timed_out"]
+    assert "diagnostic" in result["note"]
+    assert c.scores == {"1.1": 0, "1.2": 0}
+
+
+@pytest.mark.asyncio
+async def test_verified_accepts_second_environment_pass():
+    c = fixture_cases(True)
+    sandbox = RecordingSandbox(passed=lambda cmd: "2025" in cmd[0])
+    inv = Investigation(c, "1.2", None, sandbox, Limits())
+    result = json.loads(await inv.rerun("1.2"))
+    assert result["passed"]
+    assert not result["per_environment"]["2024"]["passed"]
+    assert result["per_environment"]["2025"]["passed"]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_restore_canonical_artifacts_in_fresh_directories():
+    from scicode_scanners.failure_classification.sandbox import FreshSandbox
+
+    class RecordingEnvironment:
+        def __init__(self):
+            self.writes = []
+            self.directories = []
+
+        async def write_file(self, path, content):
+            self.writes.append((path, content))
+
+        async def exec(self, cmd, **kwargs):
+            if "cwd" in kwargs:
+                self.directories.append(kwargs["cwd"])
+            return SimpleNamespace(success=True, returncode=0, stdout="", stderr="")
+
+    env = RecordingEnvironment()
+    sandbox = FreshSandbox(env, {"test_data.h5": b"canonical"})
+    await sandbox.exec(["python", "-c", "modify targets"], timeout=30)
+    await sandbox.exec(["python", "-c", "inspect targets"], timeout=30)
+    assert len(set(env.directories)) == 2
+    assert [content for _, content in env.writes] == [b"canonical", b"canonical"]
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_time_allowance_is_shared_and_enforced():
+    c = fixture_cases()
+    inv = Investigation(
+        c, "1.2", None, RecordingSandbox(), Limits(diagnostic_seconds=1)
+    )
+    inv.seconds = 0.5
+    result = json.loads(await inv.python("print(1)"))
+    assert result == {"error": "diagnostic_time_exhausted"}
+    assert inv.experiments == 0
+
+
+@pytest.mark.asyncio
+async def test_experiment_output_is_bounded_but_retained_in_trace():
+    c = fixture_cases()
+    sandbox = RecordingSandbox(stdout="a" * 20000, stderr="b" * 19990 + "Traceback")
+    inv = Investigation(c, "1.2", None, sandbox, Limits())
+    result = json.loads(await inv.python("print('x')"))
+    assert result["reference"] == "X:1"
+    assert len(result["stdout"]) < 6000 and result["stdout"].startswith("a")
+    assert result["stderr"].endswith("Traceback")
+    assert len(inv.trace[0]["result"]["stdout"]) == 20000
+    # The python tool loads cumulative submitted code and the current step's targets.
+    program = sandbox.commands[0][2]
+    assert "process_hdf5_to_tuple('1.2', 1)" in program
+    assert "def g(): return f()" in program
+
+
+@pytest.mark.asyncio
+async def test_output_limit_is_reported_as_experiment_result():
+    from inspect_ai.util import OutputLimitExceededError
+
+    class NoisySandbox:
+        async def exec(self, *args, **kwargs):
+            raise OutputLimitExceededError("10 MiB", "partial")
+
+    inv = Investigation(fixture_cases(), "1.2", None, NoisySandbox(), Limits())
+    result = json.loads(await inv.python("print('x' * 10**9)"))
+    assert result["output_limit_exceeded"] == "10 MiB"
+    assert result["stdout"] == "partial"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
+async def test_sandbox_scanner_offers_experiments_and_accepts_x_references(
+    monkeypatch, verified
+):
+    import importlib
+    from contextlib import asynccontextmanager
+
+    scanner_module = importlib.import_module(
+        "scicode_scanners.failure_classification.scanner"
+    )
+    c = fixture_cases(verified)
+    sandbox = RecordingSandbox(passed=lambda cmd: False)
+    provisioned = []
+
+    @asynccontextmanager
+    async def fake_sandbox(cases, shard, image, runtime_class):
+        provisioned.append((shard, image, runtime_class))
+        yield sandbox
+
+    first = assessment()
+    first.causes[0].origin_type = "current"
+    first.causes[0].dependency_path = ["1.1"]
+    first.causes[0].evidence = ["X:1", "T:1.1:1"]
+    model = MockModel(
+        [
+            output(
+                ToolCall(
+                    id="run",
+                    function="rerun",
+                    arguments={"step_id": "1.1"},
+                ),
+                300,
+            ),
+            output(
+                ToolCall(
+                    id="first",
+                    function="answer",
+                    arguments={"assessment": first.model_dump()},
+                ),
+                800,
+            ),
+            output(
+                ToolCall(
+                    id="second",
+                    function="answer",
+                    arguments={"assessment": assessment().model_dump()},
+                ),
+                800,
+            ),
+        ]
+    )
+
+    async def cases(*args):
+        return c
+
+    async def targets(*args):
+        return "fixture.h5"
+
+    monkeypatch.setattr(scanner_module, "load_cases", cases)
+    monkeypatch.setattr(scanner_module, "target_file", targets)
+    monkeypatch.setattr(scanner_module, "decode_targets", lambda *args: [1])
+    monkeypatch.setattr(scanner_module, "shard_targets", lambda *args: b"shard")
+    monkeypatch.setattr(scanner_module, "investigation_sandbox", fake_sandbox)
+    monkeypatch.setattr(scanner_module, "get_model", lambda: model)
+    monkeypatch.setattr(scanner_module, "hawk_results_uri", lambda: None)
+    model.name = "mock-judge"
+    results = await scanner_module.failure_classification(c.implementation)(
+        c.transcript
+    )
+    assert [r.label for r in results] == ["1.1", "1.2"]
+    # One fresh sandbox per failed step, using the pinned image for the implementation.
+    assert len(provisioned) == 2
+    assert provisioned[0][1] == scanner_module.IMAGES[c.implementation]
+    assert sandbox.commands
+    for result in results:
+        assert result.metadata["investigation_mode"] == "sandbox"
+        assert result.metadata["source"]["sandbox_image"] == provisioned[0][1]
+    trace = results[0].metadata["investigation"]["tools"]
+    assert trace[0]["reference"] == "X:1"
+    history, tools, _ = model.requests[0]
+    assert {"python", "rerun"} <= {t.name for t in tools}
+    assert "X:<experiment>" in history[0].text
+    assert "Never claim to have executed code" not in history[0].text
+    update = json.loads(history[-1].text)["budget_update"]
+    assert update["investigation_mode"] == "sandbox"
+    assert update["remaining_python_seconds"] == 120
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
+async def test_smoke_only_checks_each_interpreter_without_inference(
+    monkeypatch, verified
+):
+    import importlib
+    from contextlib import asynccontextmanager
+
+    scanner_module = importlib.import_module(
+        "scicode_scanners.failure_classification.scanner"
+    )
+    c = fixture_cases(verified)
+    sandbox = RecordingSandbox(stdout="3.11\n")
+
+    @asynccontextmanager
+    async def fake_sandbox(*args):
+        yield sandbox
+
+    async def cases(*args):
+        return c
+
+    async def targets(*args):
+        return "fixture.h5"
+
+    def no_model():
+        raise AssertionError("smoke_only must not call the judge")
+
+    monkeypatch.setattr(scanner_module, "load_cases", cases)
+    monkeypatch.setattr(scanner_module, "target_file", targets)
+    monkeypatch.setattr(scanner_module, "decode_targets", lambda *args: [1])
+    monkeypatch.setattr(scanner_module, "shard_targets", lambda *args: b"shard")
+    monkeypatch.setattr(scanner_module, "investigation_sandbox", fake_sandbox)
+    monkeypatch.setattr(
+        scanner_module, "get_model", lambda: SimpleNamespace(name="unused")
+    )
+    monkeypatch.setattr(scanner_module, "investigate", no_model)
+    monkeypatch.setattr(scanner_module, "hawk_results_uri", lambda: None)
+    [result] = await scanner_module.failure_classification(
+        c.implementation, smoke_only=True
+    )(c.transcript)
+    assert result.answer == "smoke_passed"
+    assert set(result.metadata["checks"]) == (
+        {"2024", "2025"} if verified else {"default"}
+    )
+
+
+def test_smoke_only_requires_execution():
+    from scicode_scanners.failure_classification.scanner import (
+        failure_classification,
+    )
+
+    with pytest.raises(ValueError, match="requires execution"):
+        failure_classification("scicode", execution=False, smoke_only=True)

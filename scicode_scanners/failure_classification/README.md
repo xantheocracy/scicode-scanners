@@ -14,7 +14,7 @@ Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence an
 
 The initial packet contains the current submitted solution, all preceding solutions (including author-provided code), their subproblem descriptions and interfaces, dependency imports, and the current tests. HDF5 targets are represented only by type, shape/dtype for arrays and sparse matrices, or container size; values are retrieved on demand. The packet excludes raw responses, generation prompts, system instructions, grading output, and run settings.
 
-The tools are `current_evidence` (packet pagination), `retrieve_step` (selected grading, reasoning, tests, or explicit raw prompt/response), `full_transcript` (event summaries and literal search), `read_message` (one selected message or its reasoning), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), and the structured `answer` tool. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
+The tools are `current_evidence` (packet pagination), `retrieve_step` (selected grading, reasoning, tests, or explicit raw prompt/response), `full_transcript` (event summaries and literal search), `read_message` (one selected message or its reasoning), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), `python` (a diagnostic in the grading interpreter with `targets` and the cumulative submitted code available), `rerun` (exact original grading, an isolated test, or labelled replacement of current/earlier step code), and the structured `answer` tool. Each execution receives an `X:<n>` reference that causes may cite. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
 
 Scanner version 6 removes default transcript code duplication and finalizes under context pressure; version 5 added enforced answer-tool finalization and a larger protected answer budget; version 4 changed the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
 
@@ -22,9 +22,11 @@ Evidence retrieval is bounded to 12,000 characters per response. Large payloads 
 
 No reference solutions or audit findings are exposed. Reference-code fields present in source metadata are removed recursively. Author-provided steps are available because they were visible to the evaluated model. HDF5 targets are the grader's expectations, not a guarantee of scientific correctness.
 
-The scanner is inspection-only. It does not provision a sandbox, execute submitted or model-generated code, or rerun tests. The judge distinguishes original recorded observations from deductions and untested hypotheses. Numerical behavior, upstream inheritance, or proposed fixes that require execution to verify must remain uncertain; material gaps are recorded in assessment limitations.
+By default, each failed step gets a fresh Kubernetes sandbox from the pinned grading image (`sandbox.IMAGES`), provisioned by the scanner through `inspect-k8s-sandbox`: gVisor, no network, 2 CPU / 4 GiB, single-threaded BLAS. Only the transcript's target groups and the vendored grading helpers are copied in. Every experiment runs in a new working directory, so diagnostic modifications never carry over. Diagnostics are limited to `python_timeout` (30 s) per run and `diagnostic_seconds` (120 s) per failed step; a diagnostic timeout does not reproduce the source's 1,800-second grading limit. Full stdout/stderr are kept in `metadata.investigation.tools`; the judge sees the head of stdout and the tail of stderr, 5,000 characters each.
 
-Verified's default grading accepts a pass in either the 2024 or 2025 interpreter. The scanner preserves the recorded results and actual source settings, including scientific background and environment selection.
+`execution: false` restores inspection-only classification with no sandbox. The judge is then told execution is unavailable and must leave hypotheses that need execution uncertain.
+
+Verified's default grading accepts a pass in either the 2024 or 2025 interpreter; `rerun` preserves that short-circuit, and `python` can target either environment. The scanner preserves the recorded results and actual source settings, including scientific background and environment selection.
 
 ## Run through Hawk
 
@@ -52,9 +54,9 @@ hawk scan run scicode_scanners/failure_classification/hawk-scicode-full.yaml
 hawk scan run scicode_scanners/failure_classification/hawk-scicode_verified-full.yaml
 ```
 
-Smoke configurations select a known failed transcript and run classification with the same budgets as full runs. Set `dry_run: true` to check extraction and HDF5 artifacts without inference. Full configurations scan all transcripts in the corresponding eval set without a transcript cap. Both smoke and full runs use paid GLM-5.3 inference; review the smoke results before a full run.
+Smoke configurations select a known failed transcript and run classification with the same budgets as full runs. Set `dry_run: true` to check extraction and HDF5 artifacts without inference or sandboxes, or `smoke_only: true` to also provision a sandbox and check each grading interpreter, still without inference (`hawk-*-sandbox-smoke.yaml`). Full configurations scan all transcripts in the corresponding eval set without a transcript cap. Both smoke and full runs use paid GLM-5.3 inference; review the smoke results before a full run.
 
-Native Hawk scan jobs can run this scanner without sandbox permissions. Source logs are read from their Hawk URI with full attachments resolved. Target files are downloaded with pinned checksums and decoded with the exact source harness helpers. Custom target files must match the expected full-file checksum.
+Sandbox runs need `inspect-k8s-sandbox` in the config's `packages` and scan-runner permissions for Kubernetes sandboxes. Inspection-only runs (`execution: false`) need neither. Source logs are read from their Hawk URI with full attachments resolved. Target files are downloaded with pinned checksums and decoded with the exact source harness helpers. Custom target files must match the expected full-file checksum.
 
 
 ## Budget and resume
@@ -63,7 +65,7 @@ The default judge is GLM-5.3 with `high` reasoning, the middle supported level. 
 
 Defaults also allow six read-only investigation tool calls. All limits are configurable scanner arguments. Model calls are also capped at ten by default to bound empty or malformed responses. No automatic model retries are enabled. Missing usage is charged at the request's full allowance. Budget exhaustion produces an unresolved assessment rather than another unbudgeted call.
 
-Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. Inspection-only checkpoints use scanner version 3 and a mode identifier, so they cannot reuse older sandbox investigations.
+Checkpoint records are stored under the Hawk scan results URI, discovered from the runner's infrastructure configuration. An explicit `checkpoint_uri` can override it. A request's full potential charge is saved before sending; interruptions conservatively retain that charge. Completed assessments are reused on resume. Checkpoint identity includes the scanner version, investigation mode and sandbox image, so sandbox and inspection-only investigations never reuse each other. Consumed diagnostic seconds and experiment numbering persist across resume.
 
 ```bash
 hawk scan resume SCAN_RUN_ID
@@ -85,7 +87,7 @@ The command reports affected-step and distinct-cause totals. Results retain sour
 python -m pytest -q
 ```
 
-Tests cover extraction differences, retry handling, reference-field removal, cumulative code, origin validation, deduplication, both HDF5 decoders, token accounting and budget awareness, finalization, checkpoints, read-only tool restrictions, and both harnesses through the full scanner path. These tests use fixtures and mocked model calls; they do not run evaluations locally.
+Tests cover extraction differences, retry handling, reference-field removal, cumulative code, origin validation, deduplication, both HDF5 decoders, token accounting and budget awareness, finalization, checkpoints, read-only tool restrictions, diagnostic time and output limits, Verified's either-environment rerun, fresh experiment directories, `smoke_only`, and both harnesses through the full scanner path in both modes. These tests use fixtures, mocked model calls and fake sandboxes; they do not run evaluations locally.
 
 Extraction was also checked against all eight source logs: 260 SciCode transcripts (573 failed steps) and 256 Verified transcripts (195 failed steps). Reconstructed SciCode grading matched all 1,119 recorded programs. All 183 distinct failed SciCode target groups and 101 Verified groups decoded successfully. Semantic classification quality requires reviewing smoke results before a full run.
 
@@ -123,3 +125,7 @@ Scanner version 8 changes Scout positivity from category-list truthiness to an
 explicit boolean. Model-error-only results are negative; all other established
 cause categories are positive. Existing scan outputs retain their old values and
 need reprocessing or deterministic remapping to adopt this counting convention.
+
+Scanner version 9 restores sandboxed `python` and `rerun` experiments as the
+default (`execution: false` keeps inspection-only behavior) and restores
+`smoke_only`. Result metadata records `investigation_mode` and `sandbox_image`.

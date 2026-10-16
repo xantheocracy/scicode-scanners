@@ -28,11 +28,17 @@ Use unresolved when evidence is insufficient, not other. Use partially_resolved 
 Trace origins: current step, preceding step(s), author-provided code, external, or unknown. Earlier passing steps can contain defects exposed later. Inherited defects retain their originating category. Do not attribute causality just because a previous step failed.
 Evidence tools return at most 12,000 characters. If a response has next_char_offset, it is an incomplete JSON-text excerpt; repeat the same tool arguments with that char_offset to continue. Use current_evidence to retrieve omitted initial evidence. Never treat omitted evidence as absent.
 The packet includes current and preceding solutions, their requirements, tests, and target metadata. Use inspect_target to read expected values or matrix slices; values are not included initially. Use retrieve_step for selected grading observations or reasoning. full_transcript lists/searches event summaries without model inputs; read_message reads a single selected message. Raw prompt/response retrieval is explicit and can repeat code, especially in Verified prompts. Reasoning may be unavailable, which does not exclude the transcript.
-This is an inspection-only investigation. Code execution and reruns are unavailable. Distinguish original recorded observations from deductions by inspection and untested hypotheses. Never claim to have executed code, verified a fix, or reproduced a failure. A proposed patch or imagined output is not experimental evidence. Establish causality from specific code, requirements, test expectations and recorded results; leave unsupported causal hypotheses in alternatives_considered. Use partially_resolved or unresolved when execution would be needed to distinguish plausible causes, especially numerical behavior or upstream dependencies. Record material verification gaps in limitations.
-Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target] references and relevant quotations. Keep evidence specific and consider alternatives.
+{mode}
 Use answer(assessment=...) to finish. Do not repeat a cause solely because multiple assertions fail.
 Your generated-token allowance covers reasoning, tool arguments, corrections and final output across ALL calls. The harness updates remaining tokens each turn. Reserve the indicated finalization allowance, prioritize decisive tests, and finish before exhaustion. Tool outputs and input context do not consume generated-token allowance.
 """
+
+MODES = {
+    "inspection_only": """This is an inspection-only investigation. Code execution and reruns are unavailable. Distinguish original recorded observations from deductions by inspection and untested hypotheses. Never claim to have executed code, verified a fix, or reproduced a failure. A proposed patch or imagined output is not experimental evidence. Establish causality from specific code, requirements, test expectations and recorded results; leave unsupported causal hypotheses in alternatives_considered. Use partially_resolved or unresolved when execution would be needed to distinguish plausible causes, especially numerical behavior or upstream dependencies. Record material verification gaps in limitations.
+Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target] references and relevant quotations. Keep evidence specific and consider alternatives.""",
+    "sandbox": """Use python to examine concrete hypotheses in the grading environment; print decisive evidence. Use rerun to reproduce original grading, isolate one test, or replace earlier step implementations to test whether a failure is inherited. Diagnostics share a limited execution-time allowance, so a diagnostic timeout alone does not reproduce an original grading timeout. Counterfactual changes must be labelled. Never treat a proposed patch as the original submission. Distinguish experimental observations from deductions and untested hypotheses.
+Cite stable M:<message-id>, E:<event-id>, T:<step>:<test>[:target], X:<experiment> references and relevant quotations. Keep evidence specific and consider alternatives.""",
+}
 
 
 async def answer(assessment: Assessment) -> str:
@@ -53,8 +59,9 @@ async def investigate(
     termination = "budget_exhausted"
     investigation.previous_causes = previous_causes or []
     investigation.packet = packet
+    mode = investigation.mode
     history = [
-        ChatMessageSystem(content=INSTRUCTIONS),
+        ChatMessageSystem(content=INSTRUCTIONS.format(mode=MODES[mode])),
         ChatMessageUser(content=evidence_page({"case": packet})),
     ]
     calls = []
@@ -67,6 +74,8 @@ async def investigate(
         history = TypeAdapter(list[ChatMessage]).validate_python(saved["history"])
         calls = saved["calls"]
         investigation.trace = saved["tools"]
+        investigation.seconds = saved.get("diagnostic_seconds", 0.0)
+        investigation.experiments = saved.get("experiments", 0)
 
     async def save(reserved=0):
         if checkpoint:
@@ -78,6 +87,8 @@ async def investigate(
                     "history": [m.model_dump(mode="json") for m in history],
                     "calls": calls,
                     "tools": investigation.trace,
+                    "diagnostic_seconds": investigation.seconds,
+                    "experiments": investigation.experiments,
                 }
             )
 
@@ -115,7 +126,20 @@ async def investigate(
                             "remaining_tool_rounds": max(
                                 0, limits.tool_rounds - rounds
                             ),
-                            "investigation_mode": "inspection_only",
+                            "investigation_mode": mode,
+                            **(
+                                {
+                                    "remaining_python_seconds": max(
+                                        0,
+                                        round(
+                                            limits.diagnostic_seconds
+                                            - investigation.seconds
+                                        ),
+                                    )
+                                }
+                                if mode == "sandbox"
+                                else {}
+                            ),
                         },
                         "instruction": "Submit your final assessment now; investigation tools are disabled."
                         if finalizing
@@ -215,7 +239,7 @@ async def investigate(
                 termination = "answered"
                 provenance = {
                     "limits": limits.model_dump(),
-                    "investigation_mode": "inspection_only",
+                    "investigation_mode": mode,
                     "generated_tokens": used,
                     "termination": termination,
                     "calls": calls,
@@ -277,7 +301,7 @@ async def investigate(
     )
     provenance = {
         "limits": limits.model_dump(),
-        "investigation_mode": "inspection_only",
+        "investigation_mode": mode,
         "generated_tokens": used,
         "termination": termination,
         "calls": calls,

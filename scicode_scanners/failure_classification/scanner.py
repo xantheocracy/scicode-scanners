@@ -3,16 +3,26 @@
 import hashlib
 import json
 import re
+from contextlib import nullcontext
 
 from inspect_ai.model import get_model
 from inspect_scout import Reference, Result, Scanner, Transcript, scanner
 
 from .adapters import REVISIONS, Implementation, load_cases
-from .assets import TARGETS, decode_targets, target_file, target_metadata
+from .assets import (
+    TARGETS,
+    decode_targets,
+    shard_targets,
+    target_file,
+    target_metadata,
+)
 from .checkpoints import CheckpointStore, hawk_results_uri
 from .judge import investigate
+from .sandbox import IMAGES, interpreters, investigation_sandbox
 from .schema import Limits
 from .tools import Investigation
+
+VERSION = 9
 
 POSITIVE_CATEGORIES = {
     "underspecified",
@@ -47,28 +57,74 @@ def reconcile(assessment, implementation, transcript_id):
     return rows
 
 
-@scanner(messages="all", events="all", version=8)
+async def smoke_check(env, cases, sid):
+    """Confirm each grading interpreter can import its stack and decode targets."""
+    implementation = cases.implementation
+    module = "process_data" if implementation == "scicode" else "scicode.parse.parse"
+    filename = TARGETS[implementation]["filename"]
+    target_args = f"{sid!r}, {len(cases.steps[sid]['record']['test_cases'])}" + (
+        f", {filename!r}" if implementation == "scicode_verified" else ""
+    )
+    checks = {}
+    for label, python in interpreters(cases).items():
+        check = await env.exec(
+            [
+                python,
+                "-c",
+                (
+                    "import sys, numpy, scipy, h5py; "
+                    f"from {module} import process_hdf5_to_tuple; "
+                    f"assert len(process_hdf5_to_tuple({target_args})) > 0; "
+                    "print(sys.version); print(numpy.__version__, scipy.__version__, h5py.__version__)"
+                ),
+            ],
+            timeout=30,
+            timeout_retry=False,
+        )
+        if not check.success:
+            raise RuntimeError(f"Hawk sandbox smoke check failed: {check.stderr}")
+        checks[label] = check.stdout
+    return checks
+
+
+@scanner(messages="all", events="all", version=VERSION)
 def failure_classification(
     implementation: Implementation,
     generated_token_budget: int = 32768,
     finalization_reserve: int = 8192,
     per_call_tokens: int = 4096,
     tool_rounds: int = 12,
+    python_timeout: int = 30,
+    diagnostic_seconds: int = 120,
     reasoning_effort: str = "high",
     targets_path: str | None = None,
+    execution: bool = True,
+    sandbox_image: str | None = None,
+    runtime_class: str = "gvisor",
     checkpoint_uri: str | None = None,
     dry_run: bool = False,
+    smoke_only: bool = False,
 ) -> Scanner[Transcript]:
-    """Classify each failed step; dry_run performs extraction/target checks without inference."""
+    """Classify each failed step.
+
+    dry_run performs extraction/target checks without inference or sandboxes; smoke_only also
+    provisions a sandbox and checks its interpreters. execution=False is inspection-only.
+    """
     if implementation not in {"scicode", "scicode_verified"}:
         raise ValueError("implementation must be scicode or scicode_verified.")
+    if smoke_only and not execution:
+        raise ValueError("smoke_only checks the sandbox; it requires execution.")
     limits = Limits(
         generated_token_budget=generated_token_budget,
         finalization_reserve=finalization_reserve,
         per_call_tokens=per_call_tokens,
         tool_rounds=tool_rounds,
+        python_timeout=python_timeout,
+        diagnostic_seconds=diagnostic_seconds,
         reasoning_effort=reasoning_effort,
     )
+    mode = "sandbox" if execution else "inspection_only"
+    image = (sandbox_image or IMAGES[implementation]) if execution else None
 
     async def scan(t: Transcript) -> list[Result]:
         cases = await load_cases(t, implementation)
@@ -121,31 +177,59 @@ def failure_classification(
                 )
                 for sid in failed
             ]
+        shard = (
+            shard_targets(
+                target, [s for s in cases.steps if not cases.steps[s]["provided"]]
+            )
+            if execution
+            else None
+        )
         results, previous = [], []
         for sid in failed:
-            investigation = Investigation(cases, sid, target)
             checkpoint = CheckpointStore(
                 checkpoint_uri or hawk_results_uri(),
                 {
-                    "scanner_version": 8,
+                    "scanner_version": VERSION,
                     "implementation": implementation,
                     "transcript": t.transcript_id,
                     "source_uri": t.source_uri,
                     "step": sid,
                     "limits": limits.model_dump(),
-                    "investigation_mode": "inspection_only",
+                    "investigation_mode": mode,
+                    "image": image,
                     "model": get_model().name,
                     "targets": TARGETS[implementation]["sha256"],
                 },
             )
-            assessment, provenance = await investigate(
-                get_model(),
-                investigation,
-                packets[sid],
-                limits,
-                previous,
-                checkpoint,
-            )
+            # A fresh sandbox per failed step; experiments never see earlier steps' diagnostics.
+            async with (
+                investigation_sandbox(cases, shard, image, runtime_class)
+                if execution
+                else nullcontext()
+            ) as env:
+                if smoke_only:
+                    return [
+                        Result(
+                            label="hawk_smoke",
+                            value=False,
+                            answer="smoke_passed",
+                            metadata={
+                                "implementation": implementation,
+                                "image": image,
+                                "checks": await smoke_check(env, cases, sid),
+                                "failed_steps": len(failed),
+                            },
+                            explanation="Source extraction, target artifacts, and Hawk sandbox interpreters checked without model inference.",
+                        )
+                    ]
+                assessment, provenance = await investigate(
+                    get_model(),
+                    Investigation(cases, sid, target, env, limits),
+                    packets[sid],
+                    limits,
+                    previous,
+                    checkpoint,
+                )
             causes = reconcile(assessment, implementation, t.transcript_id)
             previous.extend(
                 {
@@ -173,7 +257,8 @@ def failure_classification(
                 "adapter_revision": REVISIONS[implementation],
                 "source_revision": cases.source_revision,
                 "targets_sha256": TARGETS[implementation]["sha256"],
-                "investigation_mode": "inspection_only",
+                "sandbox_image": image,
+                "investigation_mode": mode,
                 "settings": cases.settings,
                 "judge_model": str(get_model().name),
             }
@@ -203,7 +288,7 @@ def failure_classification(
                     metadata={
                         "categories": sorted({c["category"] for c in causes}),
                         "source": source,
-                        "investigation_mode": "inspection_only",
+                        "investigation_mode": mode,
                         "assessment": result,
                         "investigation": provenance,
                     },
