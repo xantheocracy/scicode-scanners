@@ -21,7 +21,6 @@ from scicode_scanners.failure_classification.adapters import (
 from scicode_scanners.failure_classification.assets import (
     decode_targets,
     shard_targets,
-    typed,
 )
 from scicode_scanners.failure_classification.checkpoints import CheckpointStore
 from scicode_scanners.failure_classification.judge import investigate
@@ -121,10 +120,6 @@ def test_reference_fields_removed_recursively():
     assert "FORBIDDEN" not in json.dumps(cases.problem)
     assert "secret earlier code" not in packet
     assert "NEXT STEP" not in packet
-    assert (
-        cases.packet("1.2")["called_earlier_code"][0]["source"].strip()
-        == "def f(): return 0"
-    )
     assert redact({"x": [{"ground_truth_code": "secret", "ok": 1}]}) == {
         "x": [{"ok": 1}]
     }
@@ -221,8 +216,6 @@ def test_exact_decoders_and_target_shards(tmp_path, impl):
     shard.write_bytes(shard_targets(path, ["1.1"]))
     with h5py.File(shard) as f:
         assert list(f) == ["1.1"]
-    preview = typed(np.arange(100), offset=32, limit=8)
-    assert preview["values"] == list(range(32, 40)) and preview["truncated"]
 
 
 class MockModel:
@@ -253,7 +246,7 @@ def output(call, tokens, reasoning=0):
 @pytest.mark.asyncio
 async def test_budget_counts_reasoning_once_and_informs_judge():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     model = MockModel(
         [
             output(
@@ -288,7 +281,7 @@ async def test_finalization_disables_tools_and_respects_remaining_budget():
         tool_rounds=1,
     )
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     model = MockModel(
         [
             output(
@@ -317,7 +310,7 @@ async def test_finalization_disables_tools_and_respects_remaining_budget():
 async def test_checkpoint_reserves_charge_before_request_and_reuses_answer(tmp_path):
     store = CheckpointStore(str(tmp_path), {"case": "1.2"})
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
 
     class CheckedModel(MockModel):
         async def generate(self, history, tools, config, tool_choice=None):
@@ -351,7 +344,7 @@ async def test_checkpoint_reserves_charge_before_request_and_reuses_answer(tmp_p
 async def test_interrupted_call_consumes_reservation_on_resume(tmp_path):
     store = CheckpointStore(str(tmp_path), {"case": "interrupted"})
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
 
     class InterruptedModel:
         async def generate(self, *args, **kwargs):
@@ -384,7 +377,7 @@ async def test_interrupted_call_consumes_reservation_on_resume(tmp_path):
 async def test_empty_provider_responses_cannot_create_unbounded_input_spend():
     c = fixture_cases()
     limits = Limits()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     empty = ModelOutput.from_message(ChatMessageAssistant(content=""))
     empty.usage = ModelUsage(input_tokens=100, output_tokens=0, total_tokens=100)
     model = MockModel([empty] * (limits.tool_rounds + 4))
@@ -465,12 +458,8 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
     for history, tools, _ in model.requests:
         assert {t.name for t in tools} == {
             "answer",
-            "current_evidence",
             "retrieve_step",
             "read_code",
-            "full_transcript",
-            "read_message",
-            "inspect_target",
         }
         assert "Never claim to have executed code" in history[0].text
         update = json.loads(history[-1].text)["budget_update"]
@@ -481,7 +470,7 @@ async def test_inspection_only_scanner_preserves_causes_without_sandbox(
 @pytest.mark.asyncio
 async def test_retrieval_keeps_previous_findings_out_of_default_context():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     prior = [{"defect_key": "previous hypothesis"}]
     model = MockModel(
         [
@@ -515,11 +504,8 @@ async def test_large_step_and_transcript_retrieval_are_paginated():
             model_dump=lambda **kwargs: {"event": "sandbox", "output": huge},
         )
     ]
-    inv = Investigation(c, "1.2", None)
-    for tool, args in (
-        (inv.retrieve_step, {"step_id": "1.1", "section": "prompt"}),
-        (inv.full_transcript, {}),
-    ):
+    inv = Investigation(c, "1.2")
+    for tool, args in ((inv.retrieve_step, {"step_id": "1.1", "section": "prompt"}),):
         page = json.loads(await tool(**args))
         assert page["total_chars"] > 1000000
         assert len(page["excerpt"]) == PAGE_CHARS
@@ -531,10 +517,10 @@ async def test_large_step_and_transcript_retrieval_are_paginated():
 
 
 @pytest.mark.asyncio
-async def test_large_initial_evidence_is_bounded_and_remains_retrievable():
+async def test_initial_packet_is_sent_whole():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
-    packet = {**c.packet("1.2"), "large": "a" * 1000000}
+    inv = Investigation(c, "1.2")
+    packet = {**c.packet("1.2"), "large": "a" * 60000}
     model = MockModel(
         [
             output(
@@ -548,20 +534,13 @@ async def test_large_initial_evidence_is_bounded_and_remains_retrievable():
         ]
     )
     await investigate(model, inv, packet, Limits())
-    initial = json.loads(model.requests[0][0][1].text)
-    assert initial["next_char_offset"] == 40000
-    assert len(initial["excerpt"]) == 40000
-    remaining = json.loads(await inv.current_evidence(char_offset=40000))
-    assert remaining["char_offset"] == 40000 and remaining["total_chars"] > 1000000
-    serialized = json.dumps({"case": packet}, ensure_ascii=False, default=str)
-    assert initial["excerpt"] == serialized[:40000]
-    assert remaining["excerpt"] == serialized[40000:52000]
+    assert json.loads(model.requests[0][0][1].text) == {"case": packet}
 
 
 @pytest.mark.asyncio
 async def test_context_limit_prevents_oversized_followup_requests():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     giant = ModelOutput.from_message(ChatMessageAssistant(content="x" * 100001))
     giant.usage = ModelUsage(input_tokens=10, output_tokens=1, total_tokens=11)
     model = MockModel([giant])
@@ -582,8 +561,7 @@ def test_initial_packet_contains_only_scoped_evidence():
         "affected_step",
         "current_solution",
         "earlier_steps",
-        "called_earlier_code",
-        "called_earlier_code_omitted",
+        "recorded_issues",
         "dependencies",
         "tests",
     }
@@ -601,53 +579,9 @@ def test_large_target_metadata_has_no_values():
 
 
 @pytest.mark.asyncio
-async def test_matrix_target_slice(monkeypatch):
-    import scicode_scanners.failure_classification.tools as tools_module
-
-    matrix = np.arange(100).reshape(10, 10)
-    monkeypatch.setattr(tools_module, "decode_targets", lambda *args: [matrix])
-    inv = Investigation(fixture_cases(), "1.2", "fixture.h5")
-    result = json.loads(
-        await inv.inspect_target(
-            "1.2", 1, row_start=2, row_stop=4, column_start=3, column_stop=5
-        )
-    )
-    assert result["value"]["shape"] == [2, 2]
-    assert result["value"]["values"] == [23, 24, 33, 34]
-    assert result["selection"] == {"rows": [2, 4], "columns": [3, 5]}
-    with pytest.raises(ValueError, match="nonnegative"):
-        await inv.inspect_target("1.2", 1, row_start=-1)
-    monkeypatch.setattr(tools_module, "decode_targets", lambda *args: [np.arange(10)])
-    with pytest.raises(ValueError, match="two-dimensional"):
-        await inv.inspect_target("1.2", 1, row_start=0)
-
-
-@pytest.mark.asyncio
-async def test_target_metadata_only_supports_nested_matrices(monkeypatch):
-    import scicode_scanners.failure_classification.tools as tools_module
-
-    matrix = np.zeros((1000, 2000))
-    monkeypatch.setattr(
-        tools_module, "decode_targets", lambda *args: [{"matrix": matrix}]
-    )
-    inv = Investigation(fixture_cases(), "1.2", "fixture.h5")
-    result = json.loads(
-        await inv.inspect_target("1.2", 1, path=["matrix"], metadata_only=True)
-    )
-    assert result["metadata"] == {
-        "type": "ndarray",
-        "shape": [1000, 2000],
-        "dtype": "float64",
-    }
-    assert "value" not in result
-    with pytest.raises(ValueError, match="without matrix slice bounds"):
-        await inv.inspect_target("1.2", 1, metadata_only=True, row_start=0)
-
-
-@pytest.mark.asyncio
 async def test_production_budget_preserves_full_answer_reserve():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     limits = Limits()
     model = MockModel(
         [
@@ -696,18 +630,10 @@ async def test_selective_retrieval_does_not_duplicate_solutions(verified):
         "output": "AssertionError",
         "executed_program": "DUPLICATED_PROGRAM",
     }
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     default = await inv.retrieve_step("1.2")
     assert "AssertionError" in default
     assert "DUPLICATED" not in default and "def g" not in default
-    transcript = json.loads(await inv.full_transcript(query="DUPLICATED"))
-    assert transcript["total"] == 2
-    assert "DUPLICATED" not in json.dumps(transcript)
-    assert "def f" not in json.dumps(transcript)
-    assert transcript["events"][0]["messages"][-1]["reference"] == "M:m-1.1"
-    selected = json.loads(await inv.read_message("M:m-1.1"))
-    assert "def f" in selected["text"]
-    assert "def g" not in selected["text"]
     assert "messages" not in json.loads(
         await inv.retrieve_step("1.1", section="reasoning")
     )
@@ -717,7 +643,7 @@ async def test_selective_retrieval_does_not_duplicate_solutions(verified):
 @pytest.mark.asyncio
 async def test_context_pressure_triggers_answer_before_hard_limit():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     large = ModelOutput.from_message(ChatMessageAssistant(content="x" * 75000))
     large.usage = ModelUsage(input_tokens=10, output_tokens=100, total_tokens=110)
     model = MockModel(
@@ -749,19 +675,16 @@ async def test_reasoning_retrieval_excludes_response_code():
         ContentReasoning(reasoning="A specific reasoning observation."),
         ContentText(text="DUPLICATE_SOLUTION_CODE"),
     ]
-    inv = Investigation(c, "1.2", None)
-    for result in (
-        await inv.retrieve_step("1.1", section="reasoning"),
-        await inv.read_message("m-1.1", section="reasoning"),
-    ):
-        assert "A specific reasoning observation." in result
-        assert "DUPLICATE_SOLUTION_CODE" not in result
+    inv = Investigation(c, "1.2")
+    result = await inv.retrieve_step("1.1", section="reasoning")
+    assert "A specific reasoning observation." in result
+    assert "DUPLICATE_SOLUTION_CODE" not in result
 
 
 @pytest.mark.asyncio
 async def test_oversized_retrieval_is_withheld_and_answer_still_submitted():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
 
     async def oversized(**kwargs):
         return "x" * 90000
@@ -803,7 +726,7 @@ async def test_oversized_retrieval_is_withheld_and_answer_still_submitted():
 async def test_operational_error_submission_uses_recorded_generation_limit():
     c = fixture_cases()
     c.steps["1.2"]["stop_reason"] = "max_tokens"
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     evidence = json.loads(await inv.retrieve_step("1.2"))
     assert evidence["generation"] == {
         "event_reference": "E:e-1.2",
@@ -883,7 +806,7 @@ async def test_python_timeout_is_not_recorded_as_original_failure():
             raise TimeoutError
 
     c = fixture_cases(True)
-    inv = Investigation(c, "1.2", None, TimeoutSandbox(), Limits())
+    inv = Investigation(c, "1.2", TimeoutSandbox(), Limits())
     result = json.loads(await inv.rerun("1.2", environment="2024"))
     assert result["per_environment"]["2024"]["timed_out"]
     assert "diagnostic" in result["note"]
@@ -894,7 +817,7 @@ async def test_python_timeout_is_not_recorded_as_original_failure():
 async def test_verified_accepts_second_environment_pass():
     c = fixture_cases(True)
     sandbox = RecordingSandbox(passed=lambda cmd: "2025" in cmd[0])
-    inv = Investigation(c, "1.2", None, sandbox, Limits())
+    inv = Investigation(c, "1.2", sandbox, Limits())
     result = json.loads(await inv.rerun("1.2"))
     assert result["passed"]
     assert not result["per_environment"]["2024"]["passed"]
@@ -929,9 +852,7 @@ async def test_diagnostics_restore_canonical_artifacts_in_fresh_directories():
 @pytest.mark.asyncio
 async def test_diagnostic_time_allowance_is_shared_and_enforced():
     c = fixture_cases()
-    inv = Investigation(
-        c, "1.2", None, RecordingSandbox(), Limits(diagnostic_seconds=1)
-    )
+    inv = Investigation(c, "1.2", RecordingSandbox(), Limits(diagnostic_seconds=1))
     inv.seconds = 0.5
     result = json.loads(await inv.python("print(1)"))
     assert result == {"error": "diagnostic_time_exhausted"}
@@ -942,7 +863,7 @@ async def test_diagnostic_time_allowance_is_shared_and_enforced():
 async def test_experiment_output_is_bounded_but_retained_in_trace():
     c = fixture_cases()
     sandbox = RecordingSandbox(stdout="a" * 20000, stderr="b" * 19990 + "Traceback")
-    inv = Investigation(c, "1.2", None, sandbox, Limits())
+    inv = Investigation(c, "1.2", sandbox, Limits())
     result = json.loads(await inv.python("print('x')"))
     assert result["reference"] == "X:1"
     assert len(result["stdout"]) < 6000 and result["stdout"].startswith("a")
@@ -962,7 +883,7 @@ async def test_output_limit_is_reported_as_experiment_result():
         async def exec(self, *args, **kwargs):
             raise OutputLimitExceededError("10 MiB", "partial")
 
-    inv = Investigation(fixture_cases(), "1.2", None, NoisySandbox(), Limits())
+    inv = Investigation(fixture_cases(), "1.2", NoisySandbox(), Limits())
     result = json.loads(await inv.python("print('x' * 10**9)"))
     assert result["output_limit_exceeded"] == "10 MiB"
     assert result["stdout"] == "partial"
@@ -1184,7 +1105,7 @@ def test_validation_reports_every_problem_in_one_rejection():
 @pytest.mark.asyncio
 async def test_rejected_answer_is_stubbed_in_history_but_kept_in_calls():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     bad = assessment()
     bad.causes.append(bad.causes[0].model_copy())
     bad.causes[0].evidence = ["M:unknown-message"]
@@ -1240,7 +1161,7 @@ async def test_replaced_sandbox_pod_is_an_experiment_result_not_a_scan_error(
             return await super().exec(cmd, **kwargs)
 
     monkeypatch.setattr(tools, "sandbox_errors", lambda: (PodReplaced,))
-    inv = Investigation(fixture_cases(), "1.2", None, FlakySandbox(), Limits())
+    inv = Investigation(fixture_cases(), "1.2", FlakySandbox(), Limits())
     lost = json.loads(await inv.python("print('heavy')"))
     assert lost["reference"] == "X:1"
     assert lost["passed"] is None
@@ -1257,7 +1178,7 @@ def test_sandbox_requests_its_full_memory_limit():
     assert resources["requests"]["memory"] == resources["limits"]["memory"]
 
 
-def test_packet_indexes_earlier_steps_and_includes_used_definitions():
+def test_packet_indexes_earlier_steps_without_their_code():
     c = fixture_cases()
     packet = c.packet("1.2")
     [entry] = packet["earlier_steps"]
@@ -1266,20 +1187,8 @@ def test_packet_indexes_earlier_steps_and_includes_used_definitions():
     assert entry["used_by_current"] == ["f"]
     assert entry["code_status"] == "ok"
     assert "submitted_code" not in entry
-    assert packet["called_earlier_code"] == [
-        {"step": "1.1", "name": "f", "source": "def f(): return 0"}
-    ]
+    assert "return 0" not in json.dumps(packet["earlier_steps"])
     assert packet["current_solution"]["code_status"] == "ok"
-
-
-def test_called_code_respects_cap_and_reports_omissions(monkeypatch):
-    from scicode_scanners.failure_classification import adapters
-
-    c = fixture_cases()
-    monkeypatch.setattr(adapters, "CALLED_CODE_CHARS", 5)
-    packet = c.packet("1.2")
-    assert packet["called_earlier_code"] == []
-    assert packet["called_earlier_code_omitted"] == ["f"]
 
 
 def test_empty_and_unparsable_code_are_flagged():
@@ -1291,13 +1200,12 @@ def test_empty_and_unparsable_code_are_flagged():
     c.steps["1.1"]["code"] = "def f(:"
     packet = c.packet("1.2")
     assert packet["earlier_steps"][0]["code_status"] == "does_not_parse"
-    assert packet["called_earlier_code"] == []
 
 
 @pytest.mark.asyncio
 async def test_code_retrieval_by_step_and_by_name():
     c = fixture_cases()
-    inv = Investigation(c, "1.1", None)
+    inv = Investigation(c, "1.1")
     by_step = json.loads(await inv.retrieve_step("1.1", section="code"))
     assert by_step["submitted_code"].strip() == "def f(): return 0"
     assert by_step["code_status"] == "ok"
@@ -1306,14 +1214,14 @@ async def test_code_retrieval_by_step_and_by_name():
     # Later steps are not part of this investigation's evidence.
     with pytest.raises(ValueError, match="No parsed definition"):
         await inv.read_code("g")
-    later = Investigation(c, "1.2", None)
+    later = Investigation(c, "1.2")
     assert json.loads(await later.read_code("g"))["step"] == "1.2"
 
 
 @pytest.mark.asyncio
 async def test_slim_packet_is_sent_whole_in_first_message():
     c = fixture_cases()
-    inv = Investigation(c, "1.2", None)
+    inv = Investigation(c, "1.2")
     packet = {**c.packet("1.2"), "filler": "a" * 30000}
     model = MockModel(
         [
@@ -1331,3 +1239,60 @@ async def test_slim_packet_is_sent_whole_in_first_message():
     first = json.loads(model.requests[0][0][1].text)
     assert "next_char_offset" not in first
     assert first["case"]["filler"] == "a" * 30000
+
+
+def test_packet_records_stop_reasons_and_issues():
+    c = fixture_cases()
+    c.steps["1.1"]["stop_reason"] = "max_tokens"
+    limit = SimpleNamespace(
+        event="sample_limit",
+        uuid="limit",
+        model_dump=lambda **kwargs: {
+            "event": "sample_limit",
+            "uuid": "limit",
+            "timestamp": "t",
+            "type": "time",
+            "limit": 60,
+        },
+    )
+    retry = SimpleNamespace(
+        event="model",
+        uuid="retry",
+        error="provider timeout",
+        output=SimpleNamespace(choices=[]),
+    )
+    c.events = [*c.events, limit, retry]
+    packet = c.packet("1.2")
+    assert packet["current_solution"]["stop_reason"] == "stop"
+    assert packet["earlier_steps"][0]["stop_reason"] == "max_tokens"
+    assert packet["recorded_issues"] == [
+        {"reference": "E:limit", "event": "sample_limit", "type": "time", "limit": 60},
+        {
+            "reference": "E:retry",
+            "event": "model",
+            "stop_reason": None,
+            "error": "provider timeout",
+        },
+    ]
+
+
+def test_packet_omits_normal_stops_and_has_no_issues_by_default():
+    packet = fixture_cases().packet("1.2")
+    assert "stop_reason" not in packet["earlier_steps"][0]
+    assert packet["recorded_issues"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
+async def test_python_can_load_any_steps_targets(verified):
+    sandbox = RecordingSandbox()
+    inv = Investigation(fixture_cases(verified), "1.2", sandbox, Limits())
+    await inv.python("pass")
+    program = sandbox.commands[0][2]
+    # Replace the harness decoder import with a stub that records its arguments.
+    preamble = program.split("\n", 1)[1]
+    namespace = {"process_hdf5_to_tuple": lambda *args: args}
+    exec(preamble, namespace)
+    extra = ("test_data_cleaned.h5",) if verified else ()
+    assert namespace["targets"] == ("1.2", 1, *extra)
+    assert namespace["load_targets"]("1.1") == ("1.1", 1, *extra)

@@ -25,7 +25,15 @@ FORBIDDEN = {
     "audit_context",
     "audit_findings",
 }
-CALLED_CODE_CHARS = 15000
+# Event fields that locate rather than describe an event.
+EVENT_BOOKKEEPING = {
+    "uuid",
+    "span_id",
+    "timestamp",
+    "working_start",
+    "pending",
+    "metadata",
+}
 
 
 def code_outline(code: str) -> tuple[str, dict[str, str], set[str]]:
@@ -166,20 +174,46 @@ class CaseSet:
                 found[name] = (sid, source)
         return found
 
+    def recorded_issues(self) -> list[dict[str, Any]]:
+        """Error, limit and unassigned generation events; usually empty."""
+        assigned = {
+            id(step["event"])
+            for step in self.steps.values()
+            if step.get("event") is not None
+        }
+        issues = []
+        for event in self.events:
+            kind = getattr(event, "event", None)
+            reference = f"E:{event.uuid}"
+            if kind == "model" and id(event) not in assigned:
+                choices = getattr(event.output, "choices", None) or []
+                issues.append(
+                    {
+                        "reference": reference,
+                        "event": "model",
+                        "stop_reason": choices[0].stop_reason if choices else None,
+                        "error": getattr(event, "error", None),
+                    }
+                )
+            elif kind in {"error", "sample_limit"}:
+                raw = redact(event.model_dump(mode="json"))
+                if isinstance(raw.get("error"), dict):
+                    # Duplicates the traceback with terminal colour codes.
+                    raw["error"].pop("traceback_ansi", None)
+                issues.append(
+                    {
+                        "reference": reference,
+                        **{k: v for k, v in raw.items() if k not in EVENT_BOOKKEEPING},
+                    }
+                )
+        return issues
+
     def packet(self, step_id: str) -> dict[str, Any]:
         order = list(self.steps)
         step = self.steps[step_id]
         status, _, referenced = code_outline(step["code"])
         earlier = self.definitions(before=step_id)
-        used = {n: earlier[n] for n in sorted(referenced) if n in earlier}
-        # Inherited causes usually lie in directly used earlier code, so include it up front.
-        called_code, omitted, chars = [], [], 0
-        for name, (sid, source) in used.items():
-            if chars + len(source) > CALLED_CODE_CHARS:
-                omitted.append(name)
-                continue
-            chars += len(source)
-            called_code.append({"step": sid, "name": name, "source": source})
+        used = {n for n in referenced if n in earlier}
 
         def index_entry(sid):
             earlier_step = self.steps[sid]
@@ -187,6 +221,7 @@ class CaseSet:
             description = earlier_step["record"]["step_description_prompt"].strip()
             # Headers embed full docstrings; the signature line suffices for the index.
             header = (earlier_step["record"].get("function_header") or "").strip()
+            stop_reason = earlier_step.get("stop_reason")
             return {
                 "step": sid,
                 "provided": earlier_step["provided"],
@@ -197,6 +232,12 @@ class CaseSet:
                 "code_chars": len(earlier_step["code"]),
                 "code_status": code_status,
                 "response_reference": earlier_step["response_ref"],
+                # Only abnormal stops (e.g. max_tokens) are informative.
+                **(
+                    {"stop_reason": stop_reason}
+                    if stop_reason not in {None, "stop"}
+                    else {}
+                ),
             }
 
         return {
@@ -212,12 +253,12 @@ class CaseSet:
                 "submitted_code": step["code"],
                 "code_status": status,
                 "response_reference": step["response_ref"],
+                "stop_reason": step.get("stop_reason"),
             },
             "earlier_steps": [
                 index_entry(sid) for sid in order[: order.index(step_id)]
             ],
-            "called_earlier_code": called_code,
-            "called_earlier_code_omitted": omitted,
+            "recorded_issues": self.recorded_issues(),
             "dependencies": self.problem["required_dependencies"],
             "tests": [
                 {"reference": f"T:{step_id}:{i + 1}", "source": test}

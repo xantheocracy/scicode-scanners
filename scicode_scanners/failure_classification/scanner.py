@@ -22,7 +22,7 @@ from .sandbox import IMAGES, interpreters, investigation_sandbox
 from .schema import Limits
 from .tools import Investigation
 
-VERSION = 11
+VERSION = 12
 
 POSITIVE_CATEGORIES = {
     "underspecified",
@@ -224,7 +224,7 @@ def failure_classification(
                     ]
                 assessment, provenance = await investigate(
                     get_model(),
-                    Investigation(cases, sid, target, env, limits),
+                    Investigation(cases, sid, env, limits),
                     packets[sid],
                     limits,
                     previous,

@@ -1,4 +1,4 @@
-"""Pinned HDF5 assets, exact harness decoders, and lossless typed previews."""
+"""Pinned HDF5 assets, exact harness decoders, and target metadata."""
 
 import asyncio
 import fcntl
@@ -96,59 +96,6 @@ def decode_targets(path: Path, implementation: Implementation, sid: str, count: 
         module.H5PY_FILE = str(path)
         return module.process_hdf5_to_tuple(sid, count)
     return module.process_hdf5_to_tuple(sid, count, str(path))
-
-
-def typed(value: Any, offset: int = 0, limit: int = 64) -> Any:
-    """Bound previews without losing dtype/shape or hiding their incompleteness."""
-    if sparse.issparse(value):
-        return {
-            "type": type(value).__name__,
-            "shape": list(value.shape),
-            "dtype": str(value.dtype),
-            "nnz": value.nnz,
-            "data": typed(value.data, offset, limit),
-            "note": "Full sparse object is available as targets in Python.",
-        }
-    if isinstance(value, np.ndarray):
-        flat = value.ravel()
-        return {
-            "type": "ndarray",
-            "shape": list(value.shape),
-            "dtype": str(value.dtype),
-            "offset": offset,
-            "size": value.size,
-            "values": [typed(v) for v in flat[offset : offset + limit]],
-            "truncated": offset > 0 or offset + limit < value.size,
-        }
-    if isinstance(value, np.generic):
-        return typed(value.item())
-    if isinstance(value, complex):
-        return {"type": "complex", "real": value.real, "imag": value.imag}
-    if isinstance(value, float) and not np.isfinite(value):
-        return {"type": "float", "value": str(value)}
-    if isinstance(value, (tuple, list)):
-        return {
-            "type": type(value).__name__,
-            "size": len(value),
-            "offset": offset,
-            "items": [typed(v, limit=limit) for v in value[offset : offset + limit]],
-            "truncated": offset > 0 or offset + limit < len(value),
-        }
-    if isinstance(value, dict):
-        entries = list(value.items())
-        return {
-            "type": "dict",
-            "size": len(entries),
-            "offset": offset,
-            "entries": [
-                [typed(k), typed(v, limit=limit)]
-                for k, v in entries[offset : offset + limit]
-            ],
-            "truncated": offset > 0 or offset + limit < len(entries),
-        }
-    if isinstance(value, bytes):
-        return {"type": "bytes", "hex": value.hex()}
-    return value
 
 
 def target_metadata(value: Any) -> Any:

@@ -12,13 +12,13 @@ Each cause records `origin_type`, `origin_steps`, `dependency_path`, evidence an
 
 ## Evidence and tools
 
-The initial packet contains the current submitted solution with its description, interface and tests; dependency imports; an index of earlier steps (including author-provided code) with a one-line summary, signature, defined names, code size, `code_status` (`ok`, `empty` or `does_not_parse`) and which of their names the current code uses; and the source of earlier definitions the current code uses directly, up to 15,000 characters (`called_earlier_code`, with names beyond the cap in `called_earlier_code_omitted`). Other earlier code is fetched with `read_code` or `retrieve_step(section="code")`; in sandbox mode the full cumulative program is also available to `python` as `cumulative_code`. The packet is sent whole in the first message (up to 40,000 characters). HDF5 targets are represented only by type, shape/dtype for arrays and sparse matrices, or container size; values are retrieved on demand. The packet excludes raw responses, generation prompts, system instructions, grading output, and run settings.
+The initial packet contains the current submitted solution with its description, interface and tests; dependency imports; an index of earlier steps (including author-provided code) with a one-line summary, signature, defined names, code size, `code_status` (`ok`, `empty` or `does_not_parse`) and which of their names the current code uses, and any abnormal `stop_reason`; the current step's `stop_reason`; and `recorded_issues`, the transcript's error, sample-limit, and unassigned or failed generation events (usually empty). Earlier code is fetched with `read_code` or `retrieve_step(section="code")`; in sandbox mode the full cumulative program is also available to `python` as `cumulative_code`. The packet is sent whole in the first message, without a size cap. HDF5 targets are represented only by type, shape/dtype for arrays and sparse matrices, or container size; values are examined in the sandbox with `python`, and are unavailable in inspection-only mode. The packet excludes raw responses, generation prompts, system instructions, grading output, and run settings.
 
-The tools are `current_evidence` (packet pagination), `retrieve_step` (selected grading, submitted code, reasoning, tests, or explicit raw prompt/response), `read_code` (one function or class definition by name, from the current or an earlier step), `full_transcript` (event summaries and literal search), `read_message` (one selected message or its reasoning), `inspect_target` (target values, nested paths, flattened pagination, optional two-dimensional row/column slices, and `metadata_only=True` to inspect shape/dtype without values), `python` (a diagnostic in the grading interpreter with `targets` and the cumulative submitted code available), `rerun` (exact original grading, an isolated test, or labelled replacement of current/earlier step code), and the structured `answer` tool. Each execution receives an `X:<n>` reference that causes may cite. Original grading observations and exposed reasoning remain available through transcript retrieval. No earlier judge findings are exposed.
+The tools are `retrieve_step` (selected grading, submitted code, reasoning, tests, or explicit raw prompt/response), `read_code` (one function or class definition by name, from the current or an earlier step), `python` (a diagnostic in the grading interpreter with the current step's `targets`, `load_targets(step_id)` for other steps, and the cumulative submitted code available), `rerun` (exact original grading, an isolated test, or labelled replacement of current/earlier step code), and the structured `answer` tool. Each execution receives an `X:<n>` reference that causes may cite. Original grading observations and exposed reasoning remain available through `retrieve_step`. No earlier judge findings are exposed.
 
 Scanner version 6 removes default transcript code duplication and finalizes under context pressure; version 5 added enforced answer-tool finalization and a larger protected answer budget; version 4 changed the context and available tools. Earlier outputs and checkpoints are not reused by this version; scans must be reprocessed to use the new evidence packet.
 
-Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Oversized initial evidence is paginated too, with the rest available through `current_evidence`. Omitted text is explicitly marked incomplete. Context pressure at 75,000 serialized-history bytes triggers answer-only finalization. Retrieved evidence that would push history beyond 85,000 bytes is withheld with an explicit missing-evidence notice, preserving space for submission. A 100,000-byte hard ceiling remains for exceptional oversized model responses.
+Evidence retrieval is bounded to 12,000 characters per response. Large payloads return a JSON-text excerpt and `next_char_offset`; repeat the same tool arguments with that value as `char_offset` to continue. Omitted text is explicitly marked incomplete. Context pressure at 75,000 serialized-history bytes triggers answer-only finalization. Retrieved evidence that would push history beyond 85,000 bytes is withheld with an explicit missing-evidence notice, preserving space for submission. A 100,000-byte hard ceiling remains for exceptional oversized model responses.
 
 No reference solutions or audit findings are exposed. Reference-code fields present in source metadata are removed recursively. Author-provided steps are available because they were visible to the evaluated model. HDF5 targets are the grader's expectations, not a guarantee of scientific correctness.
 
@@ -109,9 +109,7 @@ running it remotely; local budget edits alone do not update the remote code.
 
 Transcript retrieval does not reload model-event inputs by default. This matters
 for SciCode's conversation history and Verified's prompts containing preceding
-solutions. `full_transcript` searches the original events but returns model-event
-message references only. `read_message` selects one original message;
-`retrieve_step` defaults to grading observations without executed programs.
+solutions. `retrieve_step` defaults to grading observations without executed programs.
 Reasoning can be requested separately without loading response text. Exact raw
 prompts and responses remain available explicitly for investigating harness
 behavior; these may duplicate code already present in the initial packet.
@@ -142,3 +140,20 @@ Scanner version 11 replaces the packet's full copies of every earlier step's cod
 with an index plus the earlier definitions the current code uses directly. On
 the Verified smoke transcript this cuts packets from 52–93KB to 8–25KB, so they
 fit in the first message without paging.
+
+Scanner version 12 tightens the `underspecified` definition: requirements a
+competent expert would assume by default, such as the field's standard
+conventions, count as specified, and the judge must name the competing reading
+the submission followed. The earlier-code copies in
+the packet (`called_earlier_code`) are removed; the index's `used_by_current`
+names what to fetch with `read_code`. The packet is no longer capped, so
+`current_evidence` is removed. `full_transcript` and
+`read_message` are removed. The packet now carries
+stop reasons and `recorded_issues` (error, sample-limit and unassigned
+generation events), the only transcript events not reachable through
+`retrieve_step` that bear on a cause. On the Opus full-run transcripts, packets
+for the 154 failed steps are 2.7–13.7KB (median about 6KB). `inspect_target` is removed: target values are examined in
+the sandbox, where `python` provides `targets` for the current step and
+`load_targets(step_id)` for any other. The largest targets (problem 63, up to
+160MB per step) were decoded in the scanner process on every call and could
+only be previewed 64 values at a time.
